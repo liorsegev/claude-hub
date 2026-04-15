@@ -35,7 +35,6 @@ target_link_libraries(imgui_lib PUBLIC d3d11 d3dcompiler dxgi)
 add_executable(claude-hub WIN32
 	src/main.cpp
 	src/conpty.cpp
-	src/terminal_buffer.cpp
 )
 target_include_directories(claude-hub PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(claude-hub PRIVATE imgui_lib)
