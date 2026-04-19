@@ -17,65 +17,92 @@ AgentManager::AgentManager(HWND container_window, Logger& log)
 	, flag_watcher_(ClaudeSessionDiscovery::home_dir() / ".claude" / "hub-waiting") {}
 
 void AgentManager::spawn() {
+	// Do everything the UI doesn't need immediately on a worker thread.
+	// The only thing this function does synchronously is capture snapshots
+	// (pid.json + window list) that must reflect pre-spawn state, then
+	// queue a future. tick() picks up completed spawns and creates the Agent.
 	char unique_name[64];
 	std::snprintf(unique_name, sizeof(unique_name), "chub_%llu_%d",
 		static_cast<unsigned long long>(GetTickCount64()), next_id_++);
+	const std::string name(unique_name);
 
-	std::vector<unsigned int> known_claude_pids;
-	for (const auto& a : agents_)
-		if (a->claude_pid()) known_claude_pids.push_back(a->claude_pid());
-
-	// ── 1. Launch wt.exe + claude and locate the new terminal window ──
+	const auto pid_snapshot = ClaudeSessionDiscovery::snapshot_pid_jsons();
 	const std::vector<HWND> before = WindowsTerminalSpawner::enumerate_candidate_windows();
-	auto spawn_result = WindowsTerminalSpawner::spawn(
-		unique_name,
-		ClaudeSessionDiscovery::claude_exe_path().string(),
-		before);
-	if (!spawn_result.window) {
-		log_.logf("Agent %s: WT spawn failed\n", unique_name);
+	const auto spawn_time = std::chrono::steady_clock::now();
+	const std::string claude_exe = ClaudeSessionDiscovery::claude_exe_path().string();
+
+	log_.logf("Agent %s: spawn queued\n", name.c_str());
+
+	pending_spawns_.push_back(std::async(std::launch::async,
+		[this, name, pid_snapshot, before, spawn_time, claude_exe]() {
+			PendingSpawn p;
+			p.unique_name = name;
+			p.spawn_time = spawn_time;
+
+			auto sr = WindowsTerminalSpawner::spawn(name, claude_exe, before);
+			if (!sr.window) return p;
+			p.window = sr.window;
+			p.process_handle = sr.process_handle;
+
+			// The claim step must be serialized across concurrent spawns so
+			// two tabs can't race on the same newly-written pid.json.
+			std::lock_guard<std::mutex> lock(claim_mutex_);
+			for (int i = 0; i < constants::SESSION_FILE_POLL_ATTEMPTS; ++i) {
+				auto info = ClaudeSessionDiscovery::find_new_pid_json_since(
+					pid_snapshot, claimed_pids_);
+				if (info) {
+					p.cwd = info->cwd;
+					p.claude_pid = info->pid;
+					claimed_pids_.insert(info->pid);
+					break;
+				}
+				Sleep(constants::WT_POLL_SLEEP_MS);
+			}
+
+			if (!p.cwd.empty()) {
+				p.jsonl_snapshot = ClaudeSessionDiscovery::snapshot_jsonls(
+					ClaudeSessionDiscovery::project_dir_for(p.cwd));
+			}
+			return p;
+		}));
+}
+
+void AgentManager::poll_pending_spawns() {
+	for (auto it = pending_spawns_.begin(); it != pending_spawns_.end(); ) {
+		if (it->wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+			++it;
+			continue;
+		}
+		PendingSpawn p = it->get();
+		it = pending_spawns_.erase(it);
+		commit_spawn(std::move(p));
+	}
+}
+
+void AgentManager::commit_spawn(PendingSpawn p) {
+	if (!p.window) {
+		log_.logf("Agent %s: WT spawn failed\n", p.unique_name.c_str());
 		return;
 	}
-
-	// ── 2. Read sessions/<pid>.json to learn claude_pid + sid ──
-	std::error_code ec;
-	const std::string target_cwd = fs::current_path(ec).string();
-	std::string cwd;
-	unsigned int claude_pid = 0;
-	for (int i = 0; i < constants::SESSION_FILE_POLL_ATTEMPTS; ++i) {
-		auto info = ClaudeSessionDiscovery::find_new_pid_json(known_claude_pids, target_cwd);
-		if (info) {
-			cwd = info->cwd;
-			claude_pid = info->pid;
-			log_.logf("Agent %s: pid.json cwd=%s initial_sid=%s pid=%u\n",
-				unique_name, cwd.c_str(), info->session_id.c_str(), info->pid);
-			break;
-		}
-		Sleep(constants::WT_POLL_SLEEP_MS);
+	if (p.claude_pid == 0) {
+		log_.logf("Agent %s: pid.json NOT FOUND after spawn\n", p.unique_name.c_str());
+	} else {
+		log_.logf("Agent %s: claude pid=%u cwd=%s\n",
+			p.unique_name.c_str(), p.claude_pid, p.cwd.c_str());
 	}
-	if (claude_pid == 0)
-		log_.logf("Agent %s: pid.json NOT FOUND (target_cwd=%s)\n",
-			unique_name, target_cwd.c_str());
 
-	// ── 3. Snapshot existing JSONLs so tick() can find the new one ──
-	std::set<std::string> snapshot;
-	if (!cwd.empty()) {
-		snapshot = ClaudeSessionDiscovery::snapshot_jsonls(
-			ClaudeSessionDiscovery::project_dir_for(cwd));
-		for (const auto& ag : agents_)
-			if (!ag->jsonl_path().empty())
-				snapshot.insert(ag->jsonl_path().filename().string());
-	}
-	log_.logf("Agent %s: snapshot=%zu existing jsonls\n", unique_name, snapshot.size());
+	for (const auto& ag : agents_)
+		if (!ag->jsonl_path().empty())
+			p.jsonl_snapshot.insert(ag->jsonl_path().filename().string());
 
-	// ── 4. Build Agent, reparent, and show ──
 	auto agent = std::make_unique<Agent>(
-		unique_name,
-		spawn_result.window,
-		spawn_result.process_handle,
-		claude_pid,
-		cwd,
-		std::move(snapshot),
-		std::chrono::steady_clock::now());
+		p.unique_name,
+		p.window,
+		p.process_handle,
+		p.claude_pid,
+		p.cwd,
+		std::move(p.jsonl_snapshot),
+		p.spawn_time);
 
 	agent->reparent_as_child(container_);
 
@@ -125,6 +152,7 @@ void AgentManager::reposition_active() {
 }
 
 void AgentManager::tick() {
+	poll_pending_spawns();
 	reap_dead();
 	discover_jsonls();
 	sync_pid_state();
@@ -137,15 +165,27 @@ void AgentManager::tick() {
 }
 
 void AgentManager::sync_pid_state() {
-	// pid.json is Claude Code's authoritative view of a process's current session.
-	// It updates when /resume switches sessions and carries the /rename name.
+	// Follow the /resume chain per-tab: from the initial claude pid we claimed
+	// at spawn, find the current live claude (itself or a forked descendant).
+	// This works because /resume spawns the new claude *inside* the old one,
+	// so the new pid is a descendant of the old — walking the process tree
+	// from the anchor pid reliably locates it.
 	for (auto& a : agents_) {
 		if (a->claude_pid() == 0) continue;
-		auto info = ClaudeSessionDiscovery::read_pid_json(a->claude_pid());
+		const unsigned int live_pid = ClaudeSessionDiscovery::find_current_claude(a->claude_pid());
+		if (!live_pid) continue;
+
+		if (live_pid != a->claude_pid()) {
+			log_.logf("Agent %s: claude pid %u -> %u\n",
+				a->name().c_str(), a->claude_pid(), live_pid);
+			a->set_claude_pid(live_pid);
+		}
+
+		auto info = ClaudeSessionDiscovery::read_pid_json(live_pid);
 		if (!info) continue;
 
-		if (!info->name.empty() && a->title() != info->name)
-			a->set_title(info->name);
+		if (a->title() != info->name)
+			a->set_title(info->name);  // empty string when no /rename yet
 
 		const std::string current_sid = a->jsonl_path().empty()
 			? std::string{}
@@ -157,7 +197,7 @@ void AgentManager::sync_pid_state() {
 		std::error_code ec;
 		if (!fs::exists(new_jsonl, ec)) continue;
 
-		log_.logf("Agent %s: session switched %s -> %s (resume)\n",
+		log_.logf("Agent %s: session switched %s -> %s\n",
 			a->name().c_str(), current_sid.c_str(), info->session_id.c_str());
 		a->attach_jsonl(new_jsonl, &log_);
 	}

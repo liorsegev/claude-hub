@@ -12,7 +12,12 @@
 #include "Logger.hpp"
 #include "WaitingFlagWatcher.hpp"
 
+#include <chrono>
+#include <future>
 #include <memory>
+#include <mutex>
+#include <set>
+#include <string>
 #include <vector>
 
 namespace ch {
@@ -42,15 +47,34 @@ public:
 	size_t size() const { return agents_.size(); }
 
 private:
+	// Result of a background spawn task. Assembled on a worker thread;
+	// handed back to the UI thread for Agent construction + HWND reparent.
+	struct PendingSpawn {
+		std::string unique_name;
+		HWND window = nullptr;
+		HANDLE process_handle = nullptr;
+		unsigned int claude_pid = 0;
+		std::string cwd;
+		std::set<std::string> jsonl_snapshot;
+		std::chrono::steady_clock::time_point spawn_time;
+	};
+
 	void reap_dead();
 	void discover_jsonls();
 	void sync_pid_state();
 	void update_waiting();
+	void poll_pending_spawns();
+	void commit_spawn(PendingSpawn p);
 
 	HWND container_;
 	Logger& log_;
 	WaitingFlagWatcher flag_watcher_;
 	std::vector<std::unique_ptr<Agent>> agents_;
+	std::vector<std::future<PendingSpawn>> pending_spawns_;
+	// Serializes the pid.json claim step across concurrent async spawns, and
+	// guards `claimed_pids_` which the workers read/write.
+	std::mutex claim_mutex_;
+	std::set<unsigned int> claimed_pids_;
 	int active_ = -1;
 	int next_id_ = 0;
 };

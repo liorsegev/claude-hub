@@ -33,19 +33,25 @@ public:
 	// Absolute path: ~/.claude/projects/<encoded-cwd>/
 	static std::filesystem::path project_dir_for(const std::string& cwd);
 
-	// Find the newest unclaimed ~/.claude/sessions/<pid>.json whose:
-	//   - PID isn't in known_pids
-	//   - cwd matches target_cwd (case-insensitive on Windows)
-	//   - PID refers to a process that is currently alive
-	//
-	// The cwd filter keeps us from matching Claude processes in other projects;
-	// the liveness check keeps us from matching stale pid.json files left over
-	// from crashed/exited Claude processes in the same project.
-	static std::optional<PidJsonEntry>
-		find_new_pid_json(const std::vector<unsigned int>& known_pids,
-		                  const std::string& target_cwd);
+	// Snapshot the set of <pid>.json basenames currently in ~/.claude/sessions/.
+	// Used around an agent spawn to diff against the post-spawn state and pick
+	// out exactly the new pid.json that the just-launched claude wrote.
+	static std::set<unsigned int> snapshot_pid_jsons();
 
-	// Re-read the pid.json for a specific PID (used to detect /resume mid-run).
+	// Find a pid.json that appeared since `before`, whose PID is alive, and
+	// whose PID isn't already in `claimed`. Among multiple candidates, returns
+	// the one with the newest `startedAt`.
+	static std::optional<PidJsonEntry>
+		find_new_pid_json_since(const std::set<unsigned int>& before,
+		                        const std::set<unsigned int>& claimed);
+
+	// Given a pid previously claimed for this tab, return the pid of the
+	// currently-live claude — either that pid itself, or a descendant of it
+	// (when /resume has forked a new claude process inside the old one).
+	// Returns 0 if nothing live under the chain.
+	static unsigned int find_current_claude(unsigned int initial_pid);
+
+	// Read the pid.json for a specific PID.
 	static std::optional<PidJsonEntry> read_pid_json(unsigned int pid);
 
 	// List all .jsonl filenames currently present in the project dir.

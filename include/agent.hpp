@@ -52,6 +52,7 @@ public:
 	const std::filesystem::path& jsonl_path() const { return jsonl_path_; }
 	const std::string& title() const { return title_; }
 	void set_title(std::string t) { title_ = std::move(t); }
+	void set_claude_pid(unsigned int p) { claude_pid_ = p; }
 
 	// Window operations
 	void reparent_as_child(HWND parent);
