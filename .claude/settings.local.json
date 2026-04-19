@@ -11,7 +11,10 @@
       "Bash(grep -oE '\"[^\"]{0,200}\":[^,}]*\\(rename|title|Title\\)' ~/.claude.json)",
       "Bash(python3 *)",
       "Bash(node *)",
-      "Bash(xargs grep *)"
+      "Bash(xargs grep *)",
+      "Bash(/c/Users/liors/.local/bin/claude.exe --help)",
+      "Bash(xargs -I {} sh -c 'echo \"=== {} ===\" && cat {} && echo')",
+      "Bash(xargs -I {} sh -c 'echo \"=== {} ===\"; cat {}; echo')"
     ]
   }
 }

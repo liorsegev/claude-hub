@@ -50,6 +50,8 @@ public:
 	const IActivityProbe* probe() const { return probe_.get(); }
 	IActivityProbe* probe() { return probe_.get(); }
 	const std::filesystem::path& jsonl_path() const { return jsonl_path_; }
+	const std::string& title() const { return title_; }
+	void set_title(std::string t) { title_ = std::move(t); }
 
 	// Window operations
 	void reparent_as_child(HWND parent);
@@ -78,6 +80,7 @@ private:
 
 	std::filesystem::path jsonl_path_;
 	std::unique_ptr<IActivityProbe> probe_;
+	std::string title_;
 
 	bool waiting_ = false;
 };

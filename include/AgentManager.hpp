@@ -44,6 +44,7 @@ public:
 private:
 	void reap_dead();
 	void discover_jsonls();
+	void sync_pid_state();
 	void update_waiting();
 
 	HWND container_;

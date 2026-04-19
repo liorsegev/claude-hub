@@ -18,6 +18,7 @@ constexpr const char* PROJECTS_SUBDIR = "projects";
 constexpr const char* CLAUDE_EXE_REL = ".local\\bin\\claude.exe";
 constexpr const char* KEY_SESSION_ID = "sessionId";
 constexpr const char* KEY_PID = "pid";
+constexpr const char* KEY_NAME = "name";
 constexpr const char* KEY_CWD_HEAD = "\"cwd\":\"";
 
 std::string extract_simple_value(const std::string& content, const std::string& key) {
@@ -73,7 +74,8 @@ fs::path ClaudeSessionDiscovery::project_dir_for(const std::string& cwd) {
 }
 
 std::optional<ClaudeSessionDiscovery::PidJsonEntry>
-ClaudeSessionDiscovery::find_new_pid_json(const std::vector<unsigned int>& known_pids) {
+ClaudeSessionDiscovery::find_new_pid_json(const std::vector<unsigned int>& known_pids,
+                                          fs::file_time_type since) {
 	const fs::path sessions_dir = home_dir() / CLAUDE_SUBDIR / SESSIONS_SUBDIR;
 	std::error_code ec;
 	if (!fs::exists(sessions_dir, ec)) return std::nullopt;
@@ -91,6 +93,7 @@ ClaudeSessionDiscovery::find_new_pid_json(const std::vector<unsigned int>& known
 
 		const auto mt = fs::last_write_time(entry.path(), ec);
 		if (ec) continue;
+		if (mt < since) continue;  // stale — predates our spawn
 		if (mt > best_time) { best_time = mt; best_path = entry.path(); }
 	}
 	if (best_path.empty()) return std::nullopt;
@@ -106,6 +109,29 @@ ClaudeSessionDiscovery::find_new_pid_json(const std::vector<unsigned int>& known
 		out.pid = static_cast<unsigned int>(std::stoul(extract_simple_value(content, KEY_PID)));
 	} catch (...) { out.pid = 0; }
 	out.cwd = extract_cwd(content);
+	out.name = extract_simple_value(content, KEY_NAME);
+
+	if (out.session_id.empty()) return std::nullopt;
+	return out;
+}
+
+std::optional<ClaudeSessionDiscovery::PidJsonEntry>
+ClaudeSessionDiscovery::read_pid_json(unsigned int pid) {
+	const fs::path p = home_dir() / CLAUDE_SUBDIR / SESSIONS_SUBDIR
+		/ (std::to_string(pid) + ".json");
+	std::error_code ec;
+	if (!fs::exists(p, ec)) return std::nullopt;
+
+	std::ifstream f(p);
+	std::stringstream ss;
+	ss << f.rdbuf();
+	const std::string content = ss.str();
+
+	PidJsonEntry out;
+	out.session_id = extract_simple_value(content, KEY_SESSION_ID);
+	out.cwd = extract_cwd(content);
+	out.name = extract_simple_value(content, KEY_NAME);
+	out.pid = pid;
 
 	if (out.session_id.empty()) return std::nullopt;
 	return out;

@@ -28,6 +28,7 @@ std::string truncate_preview(const std::string& text) {
 }
 
 std::string display_name(const Agent& a) {
+	if (!a.title().empty()) return a.title();
 	if (a.has_probe()) {
 		const std::string& title = a.probe()->conversation_title();
 		if (!title.empty()) return title;

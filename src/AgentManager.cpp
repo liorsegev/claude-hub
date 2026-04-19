@@ -27,6 +27,7 @@ void AgentManager::spawn() {
 
 	// ── 1. Launch wt.exe + claude and locate the new terminal window ──
 	const std::vector<HWND> before = WindowsTerminalSpawner::enumerate_candidate_windows();
+	const auto spawn_wall_time = fs::file_time_type::clock::now();
 	auto spawn_result = WindowsTerminalSpawner::spawn(
 		unique_name,
 		ClaudeSessionDiscovery::claude_exe_path().string(),
@@ -40,7 +41,7 @@ void AgentManager::spawn() {
 	std::string cwd;
 	unsigned int claude_pid = 0;
 	for (int i = 0; i < constants::SESSION_FILE_POLL_ATTEMPTS; ++i) {
-		auto info = ClaudeSessionDiscovery::find_new_pid_json(known_claude_pids);
+		auto info = ClaudeSessionDiscovery::find_new_pid_json(known_claude_pids, spawn_wall_time);
 		if (info) {
 			cwd = info->cwd;
 			claude_pid = info->pid;
@@ -122,12 +123,40 @@ void AgentManager::reposition_active() {
 void AgentManager::tick() {
 	reap_dead();
 	discover_jsonls();
+	sync_pid_state();
 
 	const auto now = std::chrono::steady_clock::now();
 	for (auto& a : agents_)
 		if (a->has_probe()) a->probe()->poll(now);
 
 	update_waiting();
+}
+
+void AgentManager::sync_pid_state() {
+	// pid.json is Claude Code's authoritative view of a process's current session.
+	// It updates when /resume switches sessions and carries the /rename name.
+	for (auto& a : agents_) {
+		if (a->claude_pid() == 0) continue;
+		auto info = ClaudeSessionDiscovery::read_pid_json(a->claude_pid());
+		if (!info) continue;
+
+		if (!info->name.empty() && a->title() != info->name)
+			a->set_title(info->name);
+
+		const std::string current_sid = a->jsonl_path().empty()
+			? std::string{}
+			: a->jsonl_path().stem().string();
+		if (info->session_id.empty() || info->session_id == current_sid) continue;
+
+		const fs::path new_jsonl = ClaudeSessionDiscovery::project_dir_for(a->cwd())
+			/ (info->session_id + ".jsonl");
+		std::error_code ec;
+		if (!fs::exists(new_jsonl, ec)) continue;
+
+		log_.logf("Agent %s: session switched %s -> %s (resume)\n",
+			a->name().c_str(), current_sid.c_str(), info->session_id.c_str());
+		a->attach_jsonl(new_jsonl, &log_);
+	}
 }
 
 void AgentManager::reap_dead() {
