@@ -12,7 +12,9 @@ namespace ch {
 namespace fs = std::filesystem;
 
 AgentManager::AgentManager(HWND container_window, Logger& log)
-	: container_(container_window), log_(log) {}
+	: container_(container_window)
+	, log_(log)
+	, flag_watcher_(ClaudeSessionDiscovery::home_dir() / ".claude" / "hub-waiting") {}
 
 void AgentManager::spawn() {
 	char unique_name[64];
@@ -103,6 +105,8 @@ void AgentManager::switch_to(int index) {
 	reposition_active();
 	agents_[active_]->focus();
 	agents_[active_]->set_waiting(false);
+	if (!agents_[active_]->jsonl_path().empty())
+		flag_watcher_.clear(agents_[active_]->jsonl_path().stem().string());
 }
 
 void AgentManager::reposition_active() {
@@ -187,15 +191,27 @@ void AgentManager::discover_jsonls() {
 }
 
 void AgentManager::update_waiting() {
+	const auto pending = flag_watcher_.poll_pending();
 	const auto now = std::chrono::steady_clock::now();
 	for (int i = 0; i < static_cast<int>(agents_.size()); ++i) {
 		Agent& a = *agents_[i];
-		if (i == active_ || !a.has_probe()) { a.set_waiting(false); continue; }
+		if (i == active_) {
+			a.set_waiting(false);
+			if (!a.jsonl_path().empty())
+				flag_watcher_.clear(a.jsonl_path().stem().string());
+			continue;
+		}
+		if (!a.has_probe()) { a.set_waiting(false); continue; }
+
+		const std::string sid = a.jsonl_path().stem().string();
+		const bool hook_flagged = pending.count(sid) > 0;
 
 		const IActivityProbe& p = *a.probe();
 		const bool silent = p.seconds_since_growth(now) > constants::WAITING_SILENCE_SECONDS;
 		const bool mid_response = p.last_entry_type() == "user";
-		a.set_waiting(silent && !mid_response);
+		const bool heuristic_waiting = silent && !mid_response;
+
+		a.set_waiting(hook_flagged || heuristic_waiting);
 	}
 }
 

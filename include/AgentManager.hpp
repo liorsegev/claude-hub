@@ -10,6 +10,7 @@
 
 #include "Agent.hpp"
 #include "Logger.hpp"
+#include "WaitingFlagWatcher.hpp"
 
 #include <memory>
 #include <vector>
@@ -47,6 +48,7 @@ private:
 
 	HWND container_;
 	Logger& log_;
+	WaitingFlagWatcher flag_watcher_;
 	std::vector<std::unique_ptr<Agent>> agents_;
 	int active_ = -1;
 	int next_id_ = 0;

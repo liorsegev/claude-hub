@@ -45,6 +45,7 @@ add_executable(claude-hub WIN32
 	src/JsonlActivityProbe.cpp
 	src/MainWindow.cpp
 	src/Sidebar.cpp
+	src/WaitingFlagWatcher.cpp
 	src/WindowsTerminalSpawner.cpp
 )
 target_include_directories(claude-hub PRIVATE ${CMAKE_SOURCE_DIR}/include)
