@@ -4,47 +4,40 @@
 namespace ch {
 
 namespace {
-constexpr const wchar_t* WINDOW_TITLE = L"Claude-Hub";
-constexpr const char* LOG_PATH = "C:\\Users\\liors\\claude-hub\\debug.log";
 constexpr float CLEAR_COLOR[4] = {0.1f, 0.1f, 0.12f, 1.0f};
 }
 
-App::App()
-	: log_(LOG_PATH)
-	, sidebar_() {
-	log_.logf("=== claude-hub started ===\n");
+App::App() : log_("debug.log") {}
 
+int App::run() {
 	window_ = std::make_unique<MainWindow>(
-		WINDOW_TITLE,
+		L"Claude-Hub",
 		constants::WINDOW_INIT_W,
 		constants::WINDOW_INIT_H,
 		*this);
-	window_->show();
-
-	d3d_ = std::make_unique<D3D11Context>(window_->hwnd());
-	imgui_ = std::make_unique<ImGuiRuntime>(
+	d3d_    = std::make_unique<D3D11Context>(window_->hwnd());
+	imgui_  = std::make_unique<ImGuiRuntime>(
 		window_->hwnd(), d3d_->device(), d3d_->context());
-
 	manager_ = std::make_unique<AgentManager>(window_->hwnd(), log_);
 
-	manager_->spawn();
-}
+	window_->show();
 
-int App::run() {
 	MSG msg{};
-	while (!quitting_ && msg.message != WM_QUIT) {
-		if (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
+	while (!quitting_) {
+		while (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
+			if (msg.message == WM_QUIT) quitting_ = true;
 			TranslateMessage(&msg);
 			DispatchMessage(&msg);
-			continue;
 		}
+		if (quitting_) break;
 		frame();
 	}
+
 	return 0;
 }
 
 void App::on_resize(unsigned int w, unsigned int h) {
-	if (d3d_) d3d_->queue_resize(w, h);
+	if (d3d_)     d3d_->queue_resize(w, h);
 	if (manager_) manager_->reposition_active();
 }
 
@@ -55,7 +48,7 @@ void App::on_quit() {
 void App::frame() {
 	d3d_->apply_pending_resize();
 
-	if (++frame_count_ % constants::TICK_EVERY_N_FRAMES == 0 && manager_)
+	if (++frame_count_ % constants::TICK_EVERY_N_FRAMES == 0)
 		manager_->tick();
 
 	imgui_->begin_frame();
@@ -70,11 +63,10 @@ void App::frame() {
 }
 
 void App::apply_sidebar_commands(const SidebarCommands& cmd) {
-	if (cmd.spawn_requested) manager_->spawn();
-	if (cmd.kill_active_requested && manager_->active_index() >= 0)
-		manager_->kill(manager_->active_index());
-	if (cmd.kill_index >= 0) manager_->kill(cmd.kill_index);
-	else if (cmd.switch_to_index >= 0) manager_->switch_to(cmd.switch_to_index);
+	if (cmd.spawn_requested)         manager_->spawn();
+	if (cmd.kill_active_requested)   manager_->kill(manager_->active_index());
+	if (cmd.switch_to_index >= 0)    manager_->switch_to(cmd.switch_to_index);
+	if (cmd.kill_index >= 0)         manager_->kill(cmd.kill_index);
 }
 
 }

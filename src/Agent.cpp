@@ -19,47 +19,33 @@ Agent::Agent(std::string name,
 	, spawn_time_(spawn_time) {}
 
 Agent::~Agent() {
-	if (window_ && IsWindow(window_)) {
-		SetParent(window_, nullptr);
-		PostMessage(window_, WM_CLOSE, 0, 0);
-	}
 	if (process_) CloseHandle(process_);
 }
 
 void Agent::reparent_as_child(HWND parent) {
-	LONG style = GetWindowLong(window_, GWL_STYLE);
-	style &= ~(WS_CAPTION | WS_THICKFRAME | WS_POPUP | WS_SYSMENU);
-	style |= WS_CHILD;
-	SetWindowLong(window_, GWL_STYLE, style);
+	LONG style = GetWindowLongW(window_, GWL_STYLE);
+	style = (style & ~(WS_POPUP | WS_CAPTION | WS_THICKFRAME)) | WS_CHILD;
+	SetWindowLongW(window_, GWL_STYLE, style);
 	SetParent(window_, parent);
 }
 
-void Agent::show() {
-	if (window_ && IsWindow(window_)) ShowWindow(window_, SW_SHOW);
-}
-
-void Agent::hide() {
-	if (window_ && IsWindow(window_)) ShowWindow(window_, SW_HIDE);
-}
+void Agent::show()  { ShowWindow(window_, SW_SHOW); }
+void Agent::hide()  { ShowWindow(window_, SW_HIDE); }
+void Agent::focus() { SetFocus(window_); }
 
 void Agent::move_to(int x, int y, int w, int h) {
-	if (window_ && IsWindow(window_)) MoveWindow(window_, x, y, w, h, TRUE);
-}
-
-void Agent::focus() {
-	if (window_ && IsWindow(window_)) SetFocus(window_);
+	MoveWindow(window_, x, y, w, h, TRUE);
 }
 
 bool Agent::is_alive() const {
-	if (process_ && WaitForSingleObject(process_, 0) == WAIT_OBJECT_0) return false;
-	if (window_ && !IsWindow(window_)) return false;
-	return true;
+	if (!process_) return false;
+	return WaitForSingleObject(process_, 0) == WAIT_TIMEOUT;
 }
 
 void Agent::attach_jsonl(std::filesystem::path jsonl_path, Logger* log) {
-	jsonl_path_ = std::move(jsonl_path);
+	jsonl_path_ = jsonl_path;
 	probe_ = std::make_unique<JsonlActivityProbe>(
-		jsonl_path_, name_, log, std::chrono::steady_clock::now());
+		std::move(jsonl_path), name_, log, spawn_time_);
 }
 
 }
