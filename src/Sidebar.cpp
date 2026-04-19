@@ -9,6 +9,9 @@ namespace ch {
 
 namespace {
 
+constexpr int PREVIEW_HEIGHT_PX = 90;
+constexpr size_t PREVIEW_MAX_CHARS = 240;
+
 ImVec4 color_for(bool active, bool waiting, bool blink_on) {
 	constexpr ImVec4 ACTIVE{0.4f, 1.0f, 0.4f, 1.0f};
 	constexpr ImVec4 WAIT_BRIGHT{1.0f, 1.0f, 0.2f, 1.0f};
@@ -17,6 +20,11 @@ ImVec4 color_for(bool active, bool waiting, bool blink_on) {
 	if (active) return ACTIVE;
 	if (waiting) return blink_on ? WAIT_BRIGHT : WAIT_DIM;
 	return IDLE;
+}
+
+std::string truncate_preview(const std::string& text) {
+	if (text.size() <= PREVIEW_MAX_CHARS) return text;
+	return text.substr(0, PREVIEW_MAX_CHARS) + "\xE2\x80\xA6";  // ellipsis
 }
 
 std::string short_label(const std::string& name, bool is_active, bool is_waiting) {
@@ -53,6 +61,9 @@ SidebarCommands Sidebar::draw(const AgentManager& manager, int client_w, int cli
 		const bool is_active = (i == active_idx);
 		ImGui::PushID(i);
 
+		const ImVec2 row_start = ImGui::GetCursorScreenPos();
+		const float avail_w = ImGui::GetContentRegionAvail().x;
+
 		const ImVec4 col = color_for(is_active, a.waiting(), blink_on);
 		ImGui::PushStyleColor(ImGuiCol_Text, col);
 		const std::string label = short_label(a.name(), is_active, a.waiting());
@@ -65,10 +76,33 @@ SidebarCommands Sidebar::draw(const AgentManager& manager, int client_w, int cli
 			ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1), "in=%d out=%d last=%s",
 				p.input_tokens(), p.output_tokens(), p.last_entry_type().c_str());
 			ImGui::Unindent();
+
+			if (a.waiting() && !p.last_assistant_text().empty()) {
+				ImGui::Indent();
+				ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.18f, 0.18f, 0.08f, 1));
+				ImGui::BeginChild("preview",
+					ImVec2(0, static_cast<float>(PREVIEW_HEIGHT_PX)), true,
+					ImGuiWindowFlags_NoScrollbar);
+				ImGui::TextWrapped("%s", truncate_preview(p.last_assistant_text()).c_str());
+				ImGui::EndChild();
+				ImGui::PopStyleColor();
+				ImGui::Unindent();
+			}
 		}
 
 		ImGui::SameLine();
 		if (ImGui::SmallButton("X")) cmd.kill_index = i;
+
+		const ImVec2 row_end = ImGui::GetCursorScreenPos();
+		if (a.waiting()) {
+			const ImU32 border = blink_on
+				? IM_COL32(255, 255, 60, 255)
+				: IM_COL32(180, 180, 20, 255);
+			ImGui::GetWindowDrawList()->AddRect(
+				ImVec2(row_start.x - 2, row_start.y - 2),
+				ImVec2(row_start.x + avail_w + 2, row_end.y - 2),
+				border, 4.0f, 0, 2.5f);
+		}
 
 		ImGui::PopID();
 	}

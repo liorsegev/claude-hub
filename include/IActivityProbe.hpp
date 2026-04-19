@@ -21,6 +21,7 @@ public:
 	// Rolling metadata useful for UI display and waiting logic.
 	virtual const std::string& last_entry_type() const = 0;
 	virtual const std::string& last_stop_reason() const = 0;
+	virtual const std::string& last_assistant_text() const = 0;
 	virtual int input_tokens() const = 0;
 	virtual int output_tokens() const = 0;
 	virtual int growth_count() const = 0;

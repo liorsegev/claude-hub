@@ -20,6 +20,7 @@ public:
 	float seconds_since_growth(std::chrono::steady_clock::time_point now) const override;
 	const std::string& last_entry_type() const override { return last_entry_type_; }
 	const std::string& last_stop_reason() const override { return last_stop_reason_; }
+	const std::string& last_assistant_text() const override { return last_assistant_text_; }
 	int input_tokens() const override { return input_tokens_; }
 	int output_tokens() const override { return output_tokens_; }
 	int growth_count() const override { return growth_count_; }
@@ -38,6 +39,7 @@ private:
 	std::chrono::steady_clock::time_point last_growth_;
 	std::string last_entry_type_;
 	std::string last_stop_reason_;
+	std::string last_assistant_text_;
 	int input_tokens_ = 0;
 	int output_tokens_ = 0;
 };

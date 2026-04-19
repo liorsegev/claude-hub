@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cmake --build . --config Release --target claude-hub)",
+      "Bash(git config *)",
+      "Bash(git *)"
+    ]
+  }
+}

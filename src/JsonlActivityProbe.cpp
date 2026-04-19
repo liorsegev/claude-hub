@@ -9,6 +9,41 @@ namespace ch {
 
 namespace fs = std::filesystem;
 
+namespace {
+
+// Walk forward through s from `start` (one past an opening JSON quote) to the
+// matching closing quote, respecting backslash escapes. Returns npos if unterminated.
+size_t find_json_string_end(const std::string& s, size_t start) {
+	while (start < s.size()) {
+		const char c = s[start];
+		if (c == '\\' && start + 1 < s.size()) { start += 2; continue; }
+		if (c == '"') return start;
+		++start;
+	}
+	return std::string::npos;
+}
+
+std::string unescape_json(const std::string& raw) {
+	std::string out;
+	out.reserve(raw.size());
+	for (size_t i = 0; i < raw.size(); ++i) {
+		if (raw[i] != '\\' || i + 1 >= raw.size()) { out += raw[i]; continue; }
+		switch (raw[i + 1]) {
+			case 'n':  out += '\n'; break;
+			case 't':  out += '\t'; break;
+			case 'r':  out += '\r'; break;
+			case '"':  out += '"';  break;
+			case '\\': out += '\\'; break;
+			case '/':  out += '/';  break;
+			default:   out += raw[i + 1]; break;
+		}
+		++i;
+	}
+	return out;
+}
+
+}
+
 JsonlActivityProbe::JsonlActivityProbe(fs::path jsonl_path,
                                        std::string owner_name,
                                        Logger* log,
@@ -68,6 +103,29 @@ void JsonlActivityProbe::parse_tail(const std::string& tail) {
 		const size_t start = sp + 15;
 		const size_t end = tail.find('"', start);
 		last_stop_reason_ = tail.substr(start, end - start);
+	}
+
+	// Latest assistant-text content item. Scan each line; within each
+	// assistant line take the LAST `{"type":"text","text":"..."}` item so
+	// we pick the final text block when Claude interleaves text and tool_use.
+	constexpr const char* TEXT_ITEM_MARKER = "\"type\":\"text\",\"text\":\"";
+	constexpr size_t TEXT_ITEM_MARKER_LEN = 22;
+	size_t cursor = 0;
+	while (cursor < tail.size()) {
+		const size_t nl = tail.find('\n', cursor);
+		const std::string line = tail.substr(cursor,
+			(nl == std::string::npos ? tail.size() : nl) - cursor);
+		cursor = (nl == std::string::npos) ? tail.size() : nl + 1;
+
+		if (line.find("\"type\":\"assistant\"") == std::string::npos) continue;
+
+		const size_t tp = line.rfind(TEXT_ITEM_MARKER);
+		if (tp == std::string::npos) continue;
+		const size_t str_start = tp + TEXT_ITEM_MARKER_LEN;
+		const size_t str_end = find_json_string_end(line, str_start);
+		if (str_end == std::string::npos) continue;
+
+		last_assistant_text_ = unescape_json(line.substr(str_start, str_end - str_start));
 	}
 
 	// Token counts: find usage{} blocks in the tail, keep the last

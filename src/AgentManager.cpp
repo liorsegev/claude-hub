@@ -12,7 +12,9 @@ namespace ch {
 namespace fs = std::filesystem;
 
 AgentManager::AgentManager(HWND container_window, Logger& log)
-	: container_(container_window), log_(log) {}
+	: container_(container_window)
+	, log_(log)
+	, flag_watcher_(ClaudeSessionDiscovery::home_dir() / ".claude" / "hub-waiting") {}
 
 void AgentManager::spawn() {
 	char unique_name[64];
@@ -103,6 +105,8 @@ void AgentManager::switch_to(int index) {
 	reposition_active();
 	agents_[active_]->focus();
 	agents_[active_]->set_waiting(false);
+	if (!agents_[active_]->jsonl_path().empty())
+		flag_watcher_.clear(agents_[active_]->jsonl_path().stem().string());
 }
 
 void AgentManager::reposition_active() {
@@ -187,15 +191,54 @@ void AgentManager::discover_jsonls() {
 }
 
 void AgentManager::update_waiting() {
+	const auto pending = flag_watcher_.poll_pending();
 	const auto now = std::chrono::steady_clock::now();
+
+	log_.logf("update_waiting: agents=%zu active=%d pending_flags=%zu\n",
+		agents_.size(), active_, pending.size());
+
 	for (int i = 0; i < static_cast<int>(agents_.size()); ++i) {
 		Agent& a = *agents_[i];
-		if (i == active_ || !a.has_probe()) { a.set_waiting(false); continue; }
+		const bool prev_waiting = a.waiting();
+
+		if (i == active_) {
+			a.set_waiting(false);
+			if (!a.jsonl_path().empty())
+				flag_watcher_.clear(a.jsonl_path().stem().string());
+			log_.logf("  [%d] %s: ACTIVE -> waiting=false\n", i, a.name().c_str());
+			continue;
+		}
+		if (!a.has_probe()) {
+			a.set_waiting(false);
+			log_.logf("  [%d] %s: NO_PROBE (cwd='%s' jsonl='%s') -> waiting=false\n",
+				i, a.name().c_str(),
+				a.cwd().c_str(),
+				a.jsonl_path().string().c_str());
+			continue;
+		}
+
+		const std::string sid = a.jsonl_path().stem().string();
+		const bool hook_flagged = pending.count(sid) > 0;
 
 		const IActivityProbe& p = *a.probe();
-		const bool silent = p.seconds_since_growth(now) > constants::WAITING_SILENCE_SECONDS;
+		const float silence = p.seconds_since_growth(now);
+		const bool silent = silence > constants::WAITING_SILENCE_SECONDS;
 		const bool mid_response = p.last_entry_type() == "user";
-		a.set_waiting(silent && !mid_response);
+		const bool heuristic_waiting = silent && !mid_response;
+		const bool new_waiting = hook_flagged || heuristic_waiting;
+
+		a.set_waiting(new_waiting);
+
+		log_.logf("  [%d] %s: sid=%s silence=%.1fs last_entry=%s hook=%d silent=%d mid_resp=%d -> waiting=%d%s\n",
+			i, a.name().c_str(),
+			sid.c_str(),
+			silence,
+			p.last_entry_type().c_str(),
+			hook_flagged ? 1 : 0,
+			silent ? 1 : 0,
+			mid_response ? 1 : 0,
+			new_waiting ? 1 : 0,
+			(prev_waiting != new_waiting) ? " [TRANSITION]" : "");
 	}
 }
 
