@@ -1,5 +1,14 @@
 #include "ClaudeSessionDiscovery.hpp"
 
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+
+#include <algorithm>
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
@@ -19,6 +28,7 @@ constexpr const char* CLAUDE_EXE_REL = ".local\\bin\\claude.exe";
 constexpr const char* KEY_SESSION_ID = "sessionId";
 constexpr const char* KEY_PID = "pid";
 constexpr const char* KEY_NAME = "name";
+constexpr const char* KEY_STARTED_AT = "startedAt";
 constexpr const char* KEY_CWD_HEAD = "\"cwd\":\"";
 
 std::string extract_simple_value(const std::string& content, const std::string& key) {
@@ -28,6 +38,24 @@ std::string extract_simple_value(const std::string& content, const std::string& 
 	while (start < content.size() && (content[start] == ' ' || content[start] == '"')) start++;
 	const size_t end = content.find_first_of(",\"}", start);
 	return content.substr(start, end - start);
+}
+
+bool is_process_alive(unsigned int pid) {
+	HANDLE h = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+	if (!h) return false;
+	const DWORD res = WaitForSingleObject(h, 0);
+	CloseHandle(h);
+	return res == WAIT_TIMEOUT;
+}
+
+bool cwd_equal(const std::string& a, const std::string& b) {
+	if (a.size() != b.size()) return false;
+	for (size_t i = 0; i < a.size(); ++i) {
+		const char ca = static_cast<char>(std::tolower(static_cast<unsigned char>(a[i])));
+		const char cb = static_cast<char>(std::tolower(static_cast<unsigned char>(b[i])));
+		if (ca != cb) return false;
+	}
+	return true;
 }
 
 std::string extract_cwd(const std::string& content) {
@@ -75,13 +103,13 @@ fs::path ClaudeSessionDiscovery::project_dir_for(const std::string& cwd) {
 
 std::optional<ClaudeSessionDiscovery::PidJsonEntry>
 ClaudeSessionDiscovery::find_new_pid_json(const std::vector<unsigned int>& known_pids,
-                                          fs::file_time_type since) {
+                                          const std::string& target_cwd) {
 	const fs::path sessions_dir = home_dir() / CLAUDE_SUBDIR / SESSIONS_SUBDIR;
 	std::error_code ec;
 	if (!fs::exists(sessions_dir, ec)) return std::nullopt;
 
 	fs::file_time_type best_time{};
-	fs::path best_path;
+	std::string best_content;
 	for (const auto& entry : fs::directory_iterator(sessions_dir)) {
 		if (entry.path().extension() != ".json") continue;
 		unsigned int pid = 0;
@@ -91,25 +119,31 @@ ClaudeSessionDiscovery::find_new_pid_json(const std::vector<unsigned int>& known
 		for (unsigned int kp : known_pids) if (kp == pid) { already = true; break; }
 		if (already) continue;
 
+		if (!is_process_alive(pid)) continue;
+
+		std::ifstream f(entry.path());
+		if (!f) continue;
+		std::stringstream ss;
+		ss << f.rdbuf();
+		const std::string content = ss.str();
+
+		if (!cwd_equal(extract_cwd(content), target_cwd)) continue;
+
 		const auto mt = fs::last_write_time(entry.path(), ec);
 		if (ec) continue;
-		if (mt < since) continue;  // stale — predates our spawn
-		if (mt > best_time) { best_time = mt; best_path = entry.path(); }
+		if (mt <= best_time) continue;
+		best_time = mt;
+		best_content = content;
 	}
-	if (best_path.empty()) return std::nullopt;
-
-	std::ifstream f(best_path);
-	std::stringstream ss;
-	ss << f.rdbuf();
-	const std::string content = ss.str();
+	if (best_content.empty()) return std::nullopt;
 
 	PidJsonEntry out;
-	out.session_id = extract_simple_value(content, KEY_SESSION_ID);
+	out.session_id = extract_simple_value(best_content, KEY_SESSION_ID);
 	try {
-		out.pid = static_cast<unsigned int>(std::stoul(extract_simple_value(content, KEY_PID)));
+		out.pid = static_cast<unsigned int>(std::stoul(extract_simple_value(best_content, KEY_PID)));
 	} catch (...) { out.pid = 0; }
-	out.cwd = extract_cwd(content);
-	out.name = extract_simple_value(content, KEY_NAME);
+	out.cwd = extract_cwd(best_content);
+	out.name = extract_simple_value(best_content, KEY_NAME);
 
 	if (out.session_id.empty()) return std::nullopt;
 	return out;

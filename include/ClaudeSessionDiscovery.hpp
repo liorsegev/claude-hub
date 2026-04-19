@@ -33,14 +33,17 @@ public:
 	// Absolute path: ~/.claude/projects/<encoded-cwd>/
 	static std::filesystem::path project_dir_for(const std::string& cwd);
 
-	// Find the newest ~/.claude/sessions/<pid>.json whose PID isn't in known_pids
-	// AND whose last-write-time is at or after `since`. The `since` guard is
-	// critical: the sessions dir accumulates stale pid.json files from other
-	// Claude processes; without it the first spawn picks up somebody else's
-	// session instead of the one we just started.
+	// Find the newest unclaimed ~/.claude/sessions/<pid>.json whose:
+	//   - PID isn't in known_pids
+	//   - cwd matches target_cwd (case-insensitive on Windows)
+	//   - PID refers to a process that is currently alive
+	//
+	// The cwd filter keeps us from matching Claude processes in other projects;
+	// the liveness check keeps us from matching stale pid.json files left over
+	// from crashed/exited Claude processes in the same project.
 	static std::optional<PidJsonEntry>
 		find_new_pid_json(const std::vector<unsigned int>& known_pids,
-		                  std::filesystem::file_time_type since);
+		                  const std::string& target_cwd);
 
 	// Re-read the pid.json for a specific PID (used to detect /resume mid-run).
 	static std::optional<PidJsonEntry> read_pid_json(unsigned int pid);

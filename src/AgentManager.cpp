@@ -27,7 +27,6 @@ void AgentManager::spawn() {
 
 	// ── 1. Launch wt.exe + claude and locate the new terminal window ──
 	const std::vector<HWND> before = WindowsTerminalSpawner::enumerate_candidate_windows();
-	const auto spawn_wall_time = fs::file_time_type::clock::now();
 	auto spawn_result = WindowsTerminalSpawner::spawn(
 		unique_name,
 		ClaudeSessionDiscovery::claude_exe_path().string(),
@@ -37,20 +36,25 @@ void AgentManager::spawn() {
 		return;
 	}
 
-	// ── 2. Read sessions/<pid>.json just to learn cwd (sessionId is unreliable) ──
+	// ── 2. Read sessions/<pid>.json to learn claude_pid + sid ──
+	std::error_code ec;
+	const std::string target_cwd = fs::current_path(ec).string();
 	std::string cwd;
 	unsigned int claude_pid = 0;
 	for (int i = 0; i < constants::SESSION_FILE_POLL_ATTEMPTS; ++i) {
-		auto info = ClaudeSessionDiscovery::find_new_pid_json(known_claude_pids, spawn_wall_time);
+		auto info = ClaudeSessionDiscovery::find_new_pid_json(known_claude_pids, target_cwd);
 		if (info) {
 			cwd = info->cwd;
 			claude_pid = info->pid;
-			log_.logf("Agent %s: pid.json cwd=%s initial_sid=%s\n",
-				unique_name, cwd.c_str(), info->session_id.c_str());
+			log_.logf("Agent %s: pid.json cwd=%s initial_sid=%s pid=%u\n",
+				unique_name, cwd.c_str(), info->session_id.c_str(), info->pid);
 			break;
 		}
 		Sleep(constants::WT_POLL_SLEEP_MS);
 	}
+	if (claude_pid == 0)
+		log_.logf("Agent %s: pid.json NOT FOUND (target_cwd=%s)\n",
+			unique_name, target_cwd.c_str());
 
 	// ── 3. Snapshot existing JSONLs so tick() can find the new one ──
 	std::set<std::string> snapshot;
