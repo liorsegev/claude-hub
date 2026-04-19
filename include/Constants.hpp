@@ -8,7 +8,7 @@ inline constexpr int WINDOW_INIT_W = 1400;
 inline constexpr int WINDOW_INIT_H = 900;
 inline constexpr int BUTTON_HEIGHT_PX = 30;
 inline constexpr unsigned long long BLINK_PERIOD_MS = 500;
-inline constexpr size_t LABEL_NAME_MAX = 16;
+inline constexpr size_t LABEL_NAME_MAX = 32;
 
 // ─── Activity detection ───
 inline constexpr size_t JSONL_TAIL_BYTES = 8192;

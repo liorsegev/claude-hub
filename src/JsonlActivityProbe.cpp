@@ -60,6 +60,8 @@ void JsonlActivityProbe::poll(std::chrono::steady_clock::time_point /*now*/) {
 	if (log_) log_->logf("Agent %s: JSONL grew to %llu bytes\n",
 		owner_name_.c_str(), static_cast<unsigned long long>(fsize));
 
+	try_extract_title();
+
 	std::ifstream f(path_, std::ios::ate);
 	if (!f) return;
 	const std::streampos fsz = f.tellg();
@@ -153,6 +155,40 @@ void JsonlActivityProbe::parse_tail(const std::string& tail) {
 		log_->logf("Agent %s: assistant_text[0..%zu]=\"%.*s\"\n",
 			owner_name_.c_str(), preview_n,
 			static_cast<int>(preview_n), last_assistant_text_.c_str());
+	}
+}
+
+void JsonlActivityProbe::try_extract_title() {
+	// Read the first few KB and pick a title in priority order:
+	//   1. "customTitle"  — written by Claude Code's /rename command (explicit user intent)
+	//   2. "agentName"    — written alongside customTitle by /rename
+	//   3. first user prompt as `"role":"user","content":"..."` (string content only,
+	//                       tool-result user entries use `"content":[...]` so they won't match)
+	constexpr size_t HEAD_BYTES = 4096;
+
+	std::ifstream f(path_);
+	if (!f) return;
+	std::string head(HEAD_BYTES, '\0');
+	f.read(&head[0], HEAD_BYTES);
+	head.resize(static_cast<size_t>(f.gcount()));
+
+	auto extract = [&](const char* marker, size_t marker_len) -> std::string {
+		const size_t pos = head.find(marker);
+		if (pos == std::string::npos) return {};
+		const size_t str_start = pos + marker_len;
+		const size_t str_end = find_json_string_end(head, str_start);
+		if (str_end == std::string::npos) return {};
+		return unescape_json(head.substr(str_start, str_end - str_start));
+	};
+
+	std::string title = extract("\"customTitle\":\"", 15);
+	if (title.empty()) title = extract("\"agentName\":\"", 13);
+	if (title.empty()) title = extract("\"role\":\"user\",\"content\":\"", 25);
+
+	if (!title.empty() && title != conversation_title_) {
+		conversation_title_ = std::move(title);
+		if (log_) log_->logf("Agent %s: title=\"%s\"\n",
+			owner_name_.c_str(), conversation_title_.c_str());
 	}
 }
 

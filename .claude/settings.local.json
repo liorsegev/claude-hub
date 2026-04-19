@@ -6,7 +6,12 @@
       "Bash(git *)",
       "Bash(awk '{print NR\": type=\"; for\\(i=1;i<=length\\($0\\);i++\\) if\\(i<200\\) printf \"%c\", substr\\($0,i,1\\); print \"\"}')",
       "Bash(awk 'BEGIN{FS=\"\"} /\"type\":\"assistant\"/{print NR}')",
-      "Bash(awk 'NR==FNR{if\\($0!=\"\"\\){prev=$0}; next} END{print length\\(prev\\)}' /c/Users/liors/.claude/projects/C--Users-liors-claude-hub-cmake-build-release/406ced2d-aabe-46df-9831-fa5ec704725a.jsonl /c/Users/liors/.claude/projects/C--Users-liors-claude-hub-cmake-build-release/406ced2d-aabe-46df-9831-fa5ec704725a.jsonl)"
+      "Bash(awk 'NR==FNR{if\\($0!=\"\"\\){prev=$0}; next} END{print length\\(prev\\)}' /c/Users/liors/.claude/projects/C--Users-liors-claude-hub-cmake-build-release/406ced2d-aabe-46df-9831-fa5ec704725a.jsonl /c/Users/liors/.claude/projects/C--Users-liors-claude-hub-cmake-build-release/406ced2d-aabe-46df-9831-fa5ec704725a.jsonl)",
+      "Read(//c/Users/liors/**)",
+      "Bash(grep -oE '\"[^\"]{0,200}\":[^,}]*\\(rename|title|Title\\)' ~/.claude.json)",
+      "Bash(python3 *)",
+      "Bash(node *)",
+      "Bash(xargs grep *)"
     ]
   }
 }

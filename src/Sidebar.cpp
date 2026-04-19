@@ -27,6 +27,14 @@ std::string truncate_preview(const std::string& text) {
 	return text.substr(0, PREVIEW_MAX_CHARS) + "\xE2\x80\xA6";  // ellipsis
 }
 
+std::string display_name(const Agent& a) {
+	if (a.has_probe()) {
+		const std::string& title = a.probe()->conversation_title();
+		if (!title.empty()) return title;
+	}
+	return a.name();
+}
+
 std::string short_label(const std::string& name, bool is_active, bool is_waiting) {
 	std::string label = (is_active ? "* " : "  ") + name.substr(0, constants::LABEL_NAME_MAX);
 	if (is_waiting && !is_active) label += " [WAITING]";
@@ -66,7 +74,7 @@ SidebarCommands Sidebar::draw(const AgentManager& manager, int client_w, int cli
 
 		const ImVec4 col = color_for(is_active, a.waiting(), blink_on);
 		ImGui::PushStyleColor(ImGuiCol_Text, col);
-		const std::string label = short_label(a.name(), is_active, a.waiting());
+		const std::string label = short_label(display_name(a), is_active, a.waiting());
 		if (ImGui::Selectable(label.c_str(), is_active)) cmd.switch_to_index = i;
 		ImGui::PopStyleColor();
 

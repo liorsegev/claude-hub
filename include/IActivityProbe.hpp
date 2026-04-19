@@ -19,6 +19,7 @@ public:
 	virtual const std::string& last_entry_type() const = 0;
 	virtual const std::string& last_stop_reason() const = 0;
 	virtual const std::string& last_assistant_text() const = 0;
+	virtual const std::string& conversation_title() const = 0;
 	virtual int input_tokens() const = 0;
 	virtual int output_tokens() const = 0;
 };
