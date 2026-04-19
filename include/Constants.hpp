@@ -16,8 +16,8 @@ inline constexpr size_t JSONL_TAIL_BYTES = 8192;
 // ─── Timing ───
 inline constexpr int TICK_EVERY_N_FRAMES = 30;
 inline constexpr int WT_WINDOW_POLL_ATTEMPTS = 300;
-inline constexpr int WT_POLL_SLEEP_MS = 100;
-inline constexpr int SESSION_FILE_POLL_ATTEMPTS = 50;
+inline constexpr int WT_POLL_SLEEP_MS = 25;
+inline constexpr int SESSION_FILE_POLL_ATTEMPTS = 200;
 inline constexpr int WT_SPAWN_WAIT_MS = 5000;
 
 }

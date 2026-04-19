@@ -17,10 +17,6 @@ AgentManager::AgentManager(HWND container_window, Logger& log)
 	, flag_watcher_(ClaudeSessionDiscovery::home_dir() / ".claude" / "hub-waiting") {}
 
 void AgentManager::spawn() {
-	// Do everything the UI doesn't need immediately on a worker thread.
-	// The only thing this function does synchronously is capture snapshots
-	// (pid.json + window list) that must reflect pre-spawn state, then
-	// queue a future. tick() picks up completed spawns and creates the Agent.
 	char unique_name[64];
 	std::snprintf(unique_name, sizeof(unique_name), "chub_%llu_%d",
 		static_cast<unsigned long long>(GetTickCount64()), next_id_++);
@@ -33,76 +29,92 @@ void AgentManager::spawn() {
 
 	log_.logf("Agent %s: spawn queued\n", name.c_str());
 
-	pending_spawns_.push_back(std::async(std::launch::async,
-		[this, name, pid_snapshot, before, spawn_time, claude_exe]() {
-			PendingSpawn p;
-			p.unique_name = name;
-			p.spawn_time = spawn_time;
+	// Two-stage async: emit the window as soon as it's found so the UI can
+	// dock the terminal; continue on the same thread to find the pid.json
+	// and emit the probe info later.
+	auto window_promise = std::make_shared<std::promise<WindowStage>>();
+	auto probe_promise  = std::make_shared<std::promise<ProbeStage>>();
 
+	PendingSpawn ps;
+	ps.spawn_time     = spawn_time;
+	ps.window_future  = window_promise->get_future();
+	ps.probe_future   = probe_promise->get_future();
+	pending_spawns_.push_back(std::move(ps));
+
+	std::thread(
+		[this, name, pid_snapshot, before, claude_exe, window_promise, probe_promise]() {
+			// ── Stage 1: launch wt.exe and find the new terminal window ──
+			WindowStage w;
+			w.unique_name = name;
 			auto sr = WindowsTerminalSpawner::spawn(name, claude_exe, before);
-			if (!sr.window) return p;
-			p.window = sr.window;
-			p.process_handle = sr.process_handle;
+			w.window = sr.window;
+			w.process_handle = sr.process_handle;
+			window_promise->set_value(w);
 
-			// The claim step must be serialized across concurrent spawns so
-			// two tabs can't race on the same newly-written pid.json.
-			std::lock_guard<std::mutex> lock(claim_mutex_);
-			for (int i = 0; i < constants::SESSION_FILE_POLL_ATTEMPTS; ++i) {
-				auto info = ClaudeSessionDiscovery::find_new_pid_json_since(
-					pid_snapshot, claimed_pids_);
-				if (info) {
-					p.cwd = info->cwd;
-					p.claude_pid = info->pid;
-					claimed_pids_.insert(info->pid);
-					break;
+			if (!sr.window) { probe_promise->set_value({}); return; }
+
+			// ── Stage 2: claim the pid.json this spawn produced ──
+			ProbeStage pr;
+			{
+				std::lock_guard<std::mutex> lock(claim_mutex_);
+				for (int i = 0; i < constants::SESSION_FILE_POLL_ATTEMPTS; ++i) {
+					auto info = ClaudeSessionDiscovery::find_new_pid_json_since(
+						pid_snapshot, claimed_pids_);
+					if (info) {
+						pr.claude_pid = info->pid;
+						pr.cwd = info->cwd;
+						claimed_pids_.insert(info->pid);
+						break;
+					}
+					Sleep(constants::WT_POLL_SLEEP_MS);
 				}
-				Sleep(constants::WT_POLL_SLEEP_MS);
 			}
-
-			if (!p.cwd.empty()) {
-				p.jsonl_snapshot = ClaudeSessionDiscovery::snapshot_jsonls(
-					ClaudeSessionDiscovery::project_dir_for(p.cwd));
+			if (!pr.cwd.empty()) {
+				pr.jsonl_snapshot = ClaudeSessionDiscovery::snapshot_jsonls(
+					ClaudeSessionDiscovery::project_dir_for(pr.cwd));
 			}
-			return p;
-		}));
+			probe_promise->set_value(pr);
+		}
+	).detach();
 }
 
 void AgentManager::poll_pending_spawns() {
 	for (auto it = pending_spawns_.begin(); it != pending_spawns_.end(); ) {
-		if (it->wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
-			++it;
+		// Window stage: dock as soon as ready.
+		if (it->agent_index < 0 && it->window_future.valid() &&
+		    it->window_future.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+			WindowStage w = it->window_future.get();
+			it->agent_index = commit_window_stage(std::move(w), it->spawn_time);
+			if (it->agent_index < 0) { it = pending_spawns_.erase(it); continue; }
+		}
+
+		// Probe stage: fill in claude_pid/cwd/jsonl_snapshot once ready.
+		if (it->agent_index >= 0 && it->probe_future.valid() &&
+		    it->probe_future.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+			ProbeStage pr = it->probe_future.get();
+			commit_probe_stage(it->agent_index, std::move(pr));
+			it = pending_spawns_.erase(it);
 			continue;
 		}
-		PendingSpawn p = it->get();
-		it = pending_spawns_.erase(it);
-		commit_spawn(std::move(p));
+		++it;
 	}
 }
 
-void AgentManager::commit_spawn(PendingSpawn p) {
-	if (!p.window) {
-		log_.logf("Agent %s: WT spawn failed\n", p.unique_name.c_str());
-		return;
+int AgentManager::commit_window_stage(WindowStage w,
+                                       std::chrono::steady_clock::time_point spawn_time) {
+	if (!w.window) {
+		log_.logf("Agent %s: WT spawn failed\n", w.unique_name.c_str());
+		return -1;
 	}
-	if (p.claude_pid == 0) {
-		log_.logf("Agent %s: pid.json NOT FOUND after spawn\n", p.unique_name.c_str());
-	} else {
-		log_.logf("Agent %s: claude pid=%u cwd=%s\n",
-			p.unique_name.c_str(), p.claude_pid, p.cwd.c_str());
-	}
-
-	for (const auto& ag : agents_)
-		if (!ag->jsonl_path().empty())
-			p.jsonl_snapshot.insert(ag->jsonl_path().filename().string());
 
 	auto agent = std::make_unique<Agent>(
-		p.unique_name,
-		p.window,
-		p.process_handle,
-		p.claude_pid,
-		p.cwd,
-		std::move(p.jsonl_snapshot),
-		p.spawn_time);
+		w.unique_name,
+		w.window,
+		w.process_handle,
+		0,                           // claude_pid filled in by probe stage
+		std::string{},               // cwd filled in by probe stage
+		std::set<std::string>{},     // jsonl_snapshot filled in by probe stage
+		spawn_time);
 
 	agent->reparent_as_child(container_);
 
@@ -110,11 +122,34 @@ void AgentManager::commit_spawn(PendingSpawn p) {
 		agents_[active_]->hide();
 
 	agents_.push_back(std::move(agent));
-	active_ = static_cast<int>(agents_.size()) - 1;
-
-	agents_[active_]->show();
+	const int idx = static_cast<int>(agents_.size()) - 1;
+	active_ = idx;
+	agents_[idx]->show();
 	reposition_active();
-	agents_[active_]->focus();
+	agents_[idx]->focus();
+	return idx;
+}
+
+void AgentManager::commit_probe_stage(int agent_index, ProbeStage p) {
+	if (agent_index < 0 || agent_index >= static_cast<int>(agents_.size())) return;
+	Agent& a = *agents_[agent_index];
+
+	if (p.claude_pid == 0) {
+		log_.logf("Agent %s: pid.json NOT FOUND after spawn\n", a.name().c_str());
+		return;
+	}
+	log_.logf("Agent %s: claude pid=%u cwd=%s\n",
+		a.name().c_str(), p.claude_pid, p.cwd.c_str());
+
+	// Fold in any JSONLs already attached to sibling agents so discover_jsonls
+	// doesn't re-claim one of theirs.
+	for (const auto& ag : agents_)
+		if (!ag->jsonl_path().empty())
+			p.jsonl_snapshot.insert(ag->jsonl_path().filename().string());
+
+	a.set_claude_pid(p.claude_pid);
+	a.set_cwd(std::move(p.cwd));
+	a.set_jsonl_snapshot(std::move(p.jsonl_snapshot));
 }
 
 void AgentManager::kill(int index) {

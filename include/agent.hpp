@@ -53,6 +53,8 @@ public:
 	const std::string& title() const { return title_; }
 	void set_title(std::string t) { title_ = std::move(t); }
 	void set_claude_pid(unsigned int p) { claude_pid_ = p; }
+	void set_cwd(std::string c) { cwd_ = std::move(c); }
+	void set_jsonl_snapshot(std::set<std::string> s) { jsonl_snapshot_ = std::move(s); }
 
 	// Window operations
 	void reparent_as_child(HWND parent);

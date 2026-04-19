@@ -48,7 +48,10 @@ WindowsTerminalSpawner::spawn(const std::string& title,
 		nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) {
 		return result;
 	}
-	WaitForSingleObject(pi.hProcess, constants::WT_SPAWN_WAIT_MS);
+	// wt.exe is a short-lived shim — it dispatches the command to the long-
+	// running WindowsTerminal.exe and exits. We don't need to wait for it;
+	// the new terminal window can be found via EnumWindows as soon as it
+	// appears, which is usually before wt.exe finishes exiting anyway.
 	CloseHandle(pi.hProcess);
 	CloseHandle(pi.hThread);
 
