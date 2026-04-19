@@ -1,0 +1,45 @@
+#pragma once
+
+#include "IActivityProbe.hpp"
+#include "Logger.hpp"
+
+#include <cstdint>
+#include <filesystem>
+#include <string>
+
+namespace ch {
+
+class JsonlActivityProbe : public IActivityProbe {
+public:
+	JsonlActivityProbe(std::filesystem::path jsonl_path,
+	                   std::string owner_name,
+	                   Logger* log,
+	                   std::chrono::steady_clock::time_point spawn_time);
+
+	void poll(std::chrono::steady_clock::time_point now) override;
+	float seconds_since_growth(std::chrono::steady_clock::time_point now) const override;
+	const std::string& last_entry_type() const override { return last_entry_type_; }
+	const std::string& last_stop_reason() const override { return last_stop_reason_; }
+	int input_tokens() const override { return input_tokens_; }
+	int output_tokens() const override { return output_tokens_; }
+	int growth_count() const override { return growth_count_; }
+
+	const std::filesystem::path& path() const { return path_; }
+
+private:
+	void parse_tail(const std::string& tail);
+
+	std::filesystem::path path_;
+	std::string owner_name_;
+	Logger* log_ = nullptr;
+
+	std::uint64_t last_size_ = 0;
+	int growth_count_ = 0;
+	std::chrono::steady_clock::time_point last_growth_;
+	std::string last_entry_type_;
+	std::string last_stop_reason_;
+	int input_tokens_ = 0;
+	int output_tokens_ = 0;
+};
+
+}

@@ -9,6 +9,7 @@ if(MSVC)
 	add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0A00)
 endif()
 
+# ─── ImGui ───
 include(FetchContent)
 FetchContent_Declare(
 	imgui
@@ -19,7 +20,6 @@ FetchContent_MakeAvailable(imgui)
 
 add_library(imgui_lib STATIC
 	${imgui_SOURCE_DIR}/imgui.cpp
-	${imgui_SOURCE_DIR}/imgui_demo.cpp
 	${imgui_SOURCE_DIR}/imgui_draw.cpp
 	${imgui_SOURCE_DIR}/imgui_tables.cpp
 	${imgui_SOURCE_DIR}/imgui_widgets.cpp
@@ -32,10 +32,20 @@ target_include_directories(imgui_lib PUBLIC
 )
 target_link_libraries(imgui_lib PUBLIC d3d11 d3dcompiler dxgi)
 
+# ─── Claude-Hub ───
 add_executable(claude-hub WIN32
 	src/main.cpp
-	src/conpty.cpp
-	src/terminal_buffer.cpp
+	src/App.cpp
+	src/Logger.cpp
+	src/Agent.cpp
+	src/AgentManager.cpp
+	src/ClaudeSessionDiscovery.cpp
+	src/D3D11Context.cpp
+	src/ImGuiRuntime.cpp
+	src/JsonlActivityProbe.cpp
+	src/MainWindow.cpp
+	src/Sidebar.cpp
+	src/WindowsTerminalSpawner.cpp
 )
 target_include_directories(claude-hub PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(claude-hub PRIVATE imgui_lib)

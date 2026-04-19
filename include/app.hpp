@@ -1,63 +1,45 @@
 #pragma once
 
-#include "agent_manager.hpp"
-#include "input_detector.hpp"
+#include "AgentManager.hpp"
+#include "D3D11Context.hpp"
+#include "ImGuiRuntime.hpp"
+#include "Logger.hpp"
+#include "MainWindow.hpp"
+#include "Sidebar.hpp"
 
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
+#include <memory>
 
-// FTXUI included only for header compatibility (stubs)
-#include <ftxui/component/component.hpp>
-#include <ftxui/component/screen_interactive.hpp>
-#include <ftxui/dom/elements.hpp>
+namespace ch {
 
-#include <string>
-#include <vector>
-#include <atomic>
-
-namespace claude_hub {
-
-/// Main application — direct console I/O, no framework overhead.
-class App {
+// Composition root. Wires together all subsystems and runs the frame loop.
+//
+// ── Member declaration order is load-bearing ──
+// Destruction runs in reverse: imgui_ (uses device + HWND) must be destroyed
+// BEFORE d3d_ (owns device) and window_ (owns HWND). Logger_ is first so it
+// is destroyed last, letting other destructors log if they need to.
+class App : public IWindowHandler {
 public:
 	App();
-	~App();
+	~App() override = default;
 
-	void run();
+	int run();
+
+	// IWindowHandler
+	void on_resize(unsigned int w, unsigned int h) override;
+	void on_quit() override;
 
 private:
-	void handle_key_event(const KEY_EVENT_RECORD& key);
-	void spawn_agent();
-	void switch_to_agent(const std::string& id);
-	void kill_active_agent();
-	void next_agent();
-	void detection_loop();
+	void frame();
+	void apply_sidebar_commands(const SidebarCommands& cmd);
 
-	// FTXUI stubs (unused — kept for link compatibility)
-	ftxui::Component build_ui();
-	ftxui::Element render_main_panel();
-	ftxui::Element render_side_panel(Agent*);
-	ftxui::Element render_status_bar();
-	ftxui::Element render_side_bar();
-	ftxui::Element cells_to_element(Agent*);
-	ftxui::Element render_row(const std::vector<Cell>&, int);
-	static ftxui::Color cell_fg_color(const Cell&);
-	static ftxui::Color cell_bg_color(const Cell&);
-	std::vector<Agent*> get_side_agents();
-	bool handle_key(ftxui::Event);
-	bool handle_spawn_dialog_key(ftxui::Event);
-
-	AgentManager manager_;
-	InputDetector detector_;
-	ftxui::ScreenInteractive screen_; // Unused, kept for header compat
-	std::string active_agent_id_;
-	std::atomic<bool> running_{true};
-	std::string spawn_cwd_;
+	Logger log_;
+	std::unique_ptr<MainWindow> window_;
+	std::unique_ptr<D3D11Context> d3d_;
+	std::unique_ptr<ImGuiRuntime> imgui_;
+	std::unique_ptr<AgentManager> manager_;
+	Sidebar sidebar_;
+	bool quitting_ = false;
+	int frame_count_ = 0;
 };
 
-} // namespace claude_hub
+}

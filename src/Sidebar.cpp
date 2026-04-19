@@ -1,0 +1,80 @@
+#include "Sidebar.hpp"
+#include "Constants.hpp"
+#include "IActivityProbe.hpp"
+
+#include <imgui.h>
+#include <string>
+
+namespace ch {
+
+namespace {
+
+ImVec4 color_for(bool active, bool waiting, bool blink_on) {
+	constexpr ImVec4 ACTIVE{0.4f, 1.0f, 0.4f, 1.0f};
+	constexpr ImVec4 WAIT_BRIGHT{1.0f, 1.0f, 0.2f, 1.0f};
+	constexpr ImVec4 WAIT_DIM{0.7f, 0.7f, 0.1f, 1.0f};
+	constexpr ImVec4 IDLE{1.0f, 1.0f, 1.0f, 1.0f};
+	if (active) return ACTIVE;
+	if (waiting) return blink_on ? WAIT_BRIGHT : WAIT_DIM;
+	return IDLE;
+}
+
+std::string short_label(const std::string& name, bool is_active, bool is_waiting) {
+	std::string label = (is_active ? "* " : "  ") + name.substr(0, constants::LABEL_NAME_MAX);
+	if (is_waiting && !is_active) label += " [WAITING]";
+	return label;
+}
+
+}
+
+SidebarCommands Sidebar::draw(const AgentManager& manager, int client_w, int client_h) {
+	SidebarCommands cmd;
+
+	ImGui::SetNextWindowPos(ImVec2(static_cast<float>(client_w - constants::SIDEBAR_WIDTH_PX), 0));
+	ImGui::SetNextWindowSize(ImVec2(static_cast<float>(constants::SIDEBAR_WIDTH_PX),
+		static_cast<float>(client_h)));
+	ImGui::Begin("##sidebar", nullptr,
+		ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
+
+	if (ImGui::Button("+ New Agent", ImVec2(-1, constants::BUTTON_HEIGHT_PX)))
+		cmd.spawn_requested = true;
+	if (ImGui::Button("Kill Active", ImVec2(-1, constants::BUTTON_HEIGHT_PX)))
+		cmd.kill_active_requested = true;
+	ImGui::Separator();
+	ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1), "Yellow = waiting for input");
+	ImGui::Separator();
+
+	const bool blink_on = (GetTickCount64() / constants::BLINK_PERIOD_MS) % 2 == 0;
+	const int active_idx = manager.active_index();
+	const auto& agents = manager.agents();
+
+	for (int i = 0; i < static_cast<int>(agents.size()); ++i) {
+		const Agent& a = *agents[i];
+		const bool is_active = (i == active_idx);
+		ImGui::PushID(i);
+
+		const ImVec4 col = color_for(is_active, a.waiting(), blink_on);
+		ImGui::PushStyleColor(ImGuiCol_Text, col);
+		const std::string label = short_label(a.name(), is_active, a.waiting());
+		if (ImGui::Selectable(label.c_str(), is_active)) cmd.switch_to_index = i;
+		ImGui::PopStyleColor();
+
+		if (a.has_probe()) {
+			const IActivityProbe& p = *a.probe();
+			ImGui::Indent();
+			ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1), "in=%d out=%d last=%s",
+				p.input_tokens(), p.output_tokens(), p.last_entry_type().c_str());
+			ImGui::Unindent();
+		}
+
+		ImGui::SameLine();
+		if (ImGui::SmallButton("X")) cmd.kill_index = i;
+
+		ImGui::PopID();
+	}
+
+	ImGui::End();
+	return cmd;
+}
+
+}

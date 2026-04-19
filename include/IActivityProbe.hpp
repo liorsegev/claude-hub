@@ -1,0 +1,29 @@
+#pragma once
+
+#include <chrono>
+#include <string>
+
+namespace ch {
+
+// Abstract interface for detecting whether an agent is actively doing work.
+// Current implementation: JsonlActivityProbe (tails the Claude conversation JSONL).
+// Future implementations could probe process CPU, stdout captures, etc.
+class IActivityProbe {
+public:
+	virtual ~IActivityProbe() = default;
+
+	// Poll the underlying source; update internal state.
+	virtual void poll(std::chrono::steady_clock::time_point now) = 0;
+
+	// Seconds since we last observed any activity.
+	virtual float seconds_since_growth(std::chrono::steady_clock::time_point now) const = 0;
+
+	// Rolling metadata useful for UI display and waiting logic.
+	virtual const std::string& last_entry_type() const = 0;
+	virtual const std::string& last_stop_reason() const = 0;
+	virtual int input_tokens() const = 0;
+	virtual int output_tokens() const = 0;
+	virtual int growth_count() const = 0;
+};
+
+}
