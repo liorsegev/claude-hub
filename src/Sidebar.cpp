@@ -77,9 +77,12 @@ SidebarCommands Sidebar::draw(const AgentManager& manager, int client_w, int cli
 				p.input_tokens(), p.output_tokens(), p.last_entry_type().c_str());
 			ImGui::Unindent();
 
-			if (a.waiting() && !p.last_assistant_text().empty()) {
+			if (!p.last_assistant_text().empty()) {
+				const ImVec4 bg = a.waiting()
+					? ImVec4(0.18f, 0.18f, 0.08f, 1)
+					: ImVec4(0.12f, 0.12f, 0.14f, 1);
 				ImGui::Indent();
-				ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.18f, 0.18f, 0.08f, 1));
+				ImGui::PushStyleColor(ImGuiCol_ChildBg, bg);
 				ImGui::BeginChild("preview",
 					ImVec2(0, static_cast<float>(PREVIEW_HEIGHT_PX)), true,
 					ImGuiWindowFlags_NoScrollbar);

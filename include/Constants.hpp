@@ -11,7 +11,6 @@ inline constexpr unsigned long long BLINK_PERIOD_MS = 500;
 inline constexpr size_t LABEL_NAME_MAX = 16;
 
 // ─── Activity detection ───
-inline constexpr float WAITING_SILENCE_SECONDS = 30.0f;
 inline constexpr size_t JSONL_TAIL_BYTES = 8192;
 
 // ─── Timing ───

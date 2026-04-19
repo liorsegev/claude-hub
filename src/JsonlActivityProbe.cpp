@@ -46,27 +46,19 @@ std::string unescape_json(const std::string& raw) {
 
 JsonlActivityProbe::JsonlActivityProbe(fs::path jsonl_path,
                                        std::string owner_name,
-                                       Logger* log,
-                                       std::chrono::steady_clock::time_point spawn_time)
+                                       Logger* log)
 	: path_(std::move(jsonl_path))
 	, owner_name_(std::move(owner_name))
-	, log_(log)
-	, last_growth_(spawn_time) {}
+	, log_(log) {}
 
-float JsonlActivityProbe::seconds_since_growth(std::chrono::steady_clock::time_point now) const {
-	return std::chrono::duration<float>(now - last_growth_).count();
-}
-
-void JsonlActivityProbe::poll(std::chrono::steady_clock::time_point now) {
+void JsonlActivityProbe::poll(std::chrono::steady_clock::time_point /*now*/) {
 	std::error_code ec;
 	auto fsize = fs::file_size(path_, ec);
 	if (ec || fsize == 0 || fsize == last_size_) return;
 
 	last_size_ = fsize;
-	last_growth_ = now;
-	growth_count_++;
-	if (log_) log_->logf("Agent %s: JSONL grew to %llu bytes (growth #%d)\n",
-		owner_name_.c_str(), static_cast<unsigned long long>(fsize), growth_count_);
+	if (log_) log_->logf("Agent %s: JSONL grew to %llu bytes\n",
+		owner_name_.c_str(), static_cast<unsigned long long>(fsize));
 
 	std::ifstream f(path_, std::ios::ate);
 	if (!f) return;
@@ -97,12 +89,16 @@ void JsonlActivityProbe::parse_tail(const std::string& tail) {
 		last_entry_type_ = last_line.substr(start, end - start);
 	}
 
-	// Latest stop_reason found anywhere in the tail window.
-	const size_t sp = tail.rfind("\"stop_reason\":\"");
+	// stop_reason from the LAST line only. If the last entry is a user /
+	// tool_result line (no stop_reason) this clears — signalling "turn in
+	// progress" rather than leaving a stale end_turn from earlier.
+	last_stop_reason_.clear();
+	const size_t sp = last_line.find("\"stop_reason\":\"");
 	if (sp != std::string::npos) {
 		const size_t start = sp + 15;
-		const size_t end = tail.find('"', start);
-		last_stop_reason_ = tail.substr(start, end - start);
+		const size_t end = last_line.find('"', start);
+		if (end != std::string::npos)
+			last_stop_reason_ = last_line.substr(start, end - start);
 	}
 
 	// Latest assistant-text content item. Scan each line; within each

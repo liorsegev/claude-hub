@@ -45,7 +45,7 @@ bool Agent::is_alive() const {
 void Agent::attach_jsonl(std::filesystem::path jsonl_path, Logger* log) {
 	jsonl_path_ = jsonl_path;
 	probe_ = std::make_unique<JsonlActivityProbe>(
-		std::move(jsonl_path), name_, log, spawn_time_);
+		std::move(jsonl_path), name_, log);
 }
 
 }
