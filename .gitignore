@@ -4,3 +4,5 @@ build/
 CMakeSettings.json
 out/
 .idea/
+debug.log
+imgui.ini
