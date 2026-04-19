@@ -77,66 +77,82 @@ void JsonlActivityProbe::poll(std::chrono::steady_clock::time_point /*now*/) {
 }
 
 void JsonlActivityProbe::parse_tail(const std::string& tail) {
-	// Grab the last JSONL record's root "type" (entries contain nested
-	// types, so we rfind to get the outermost one).
-	const size_t last_nl = tail.rfind('\n', tail.size() - 2);
-	const std::string last_line = (last_nl == std::string::npos) ? tail : tail.substr(last_nl + 1);
-
-	const size_t tp = last_line.rfind("\"type\":\"");
-	if (tp != std::string::npos) {
-		const size_t start = tp + 8;
-		const size_t end = last_line.find('"', start);
-		last_entry_type_ = last_line.substr(start, end - start);
-	}
-
-	// stop_reason from the LAST line only. If the last entry is a user /
-	// tool_result line (no stop_reason) this clears — signalling "turn in
-	// progress" rather than leaving a stale end_turn from earlier.
-	last_stop_reason_.clear();
-	const size_t sp = last_line.find("\"stop_reason\":\"");
-	if (sp != std::string::npos) {
-		const size_t start = sp + 15;
-		const size_t end = last_line.find('"', start);
-		if (end != std::string::npos)
-			last_stop_reason_ = last_line.substr(start, end - start);
-	}
-
-	// Latest assistant-text content item. Scan each line; within each
-	// assistant line take the LAST `{"type":"text","text":"..."}` item so
-	// we pick the final text block when Claude interleaves text and tool_use.
+	// Walk every line in the tail once. For each line determine:
+	//   - root "type" (via rfind — nested "type" keys appear earlier)
+	//   - if assistant, its stop_reason and last text-content item
+	//   - if it carries a usage{} block, the token counts
+	//
+	// Claude Code appends a `"type":"system"` turn_duration marker after each
+	// assistant turn, so we must ignore non-meaningful types (system /
+	// attachment / partial-flush "message") and track the latest assistant
+	// or user entry as the "current state" of the conversation.
 	constexpr const char* TEXT_ITEM_MARKER = "\"type\":\"text\",\"text\":\"";
 	constexpr size_t TEXT_ITEM_MARKER_LEN = 22;
+
+	last_stop_reason_.clear();
+
 	size_t cursor = 0;
 	while (cursor < tail.size()) {
 		const size_t nl = tail.find('\n', cursor);
 		const std::string line = tail.substr(cursor,
 			(nl == std::string::npos ? tail.size() : nl) - cursor);
 		cursor = (nl == std::string::npos) ? tail.size() : nl + 1;
+		if (line.empty()) continue;
 
-		if (line.find("\"type\":\"assistant\"") == std::string::npos) continue;
-
-		const size_t tp = line.rfind(TEXT_ITEM_MARKER);
+		const size_t tp = line.rfind("\"type\":\"");
 		if (tp == std::string::npos) continue;
-		const size_t str_start = tp + TEXT_ITEM_MARKER_LEN;
-		const size_t str_end = find_json_string_end(line, str_start);
-		if (str_end == std::string::npos) continue;
+		const size_t ts = tp + 8;
+		const size_t te = line.find('"', ts);
+		if (te == std::string::npos) continue;
+		const std::string line_type = line.substr(ts, te - ts);
 
-		last_assistant_text_ = unescape_json(line.substr(str_start, str_end - str_start));
+		if (line_type != "user" && line_type != "assistant") continue;
+
+		last_entry_type_ = line_type;
+
+		if (line_type != "assistant") {
+			last_stop_reason_.clear();
+			continue;
+		}
+
+		// Assistant line: pull stop_reason, last text content item, usage.
+		const size_t stop_bound = line.find("\"stop_reason\":\"");
+		if (stop_bound != std::string::npos) {
+			const size_t s = stop_bound + 15;
+			const size_t e = line.find('"', s);
+			last_stop_reason_ = (e == std::string::npos) ? std::string{} : line.substr(s, e - s);
+		} else {
+			last_stop_reason_.clear();
+		}
+
+		const size_t content_end = (stop_bound == std::string::npos) ? line.size() : stop_bound;
+		const size_t text_tp = line.rfind(TEXT_ITEM_MARKER, content_end);
+		if (text_tp != std::string::npos && text_tp < content_end) {
+			const size_t str_start = text_tp + TEXT_ITEM_MARKER_LEN;
+			const size_t str_end = find_json_string_end(line, str_start);
+			if (str_end != std::string::npos)
+				last_assistant_text_ = unescape_json(line.substr(str_start, str_end - str_start));
+		}
+
+		const size_t up = line.find("\"usage\":");
+		if (up != std::string::npos) {
+			auto parse_int = [&](const std::string& key) -> int {
+				const size_t kp = line.find("\"" + key + "\":", up);
+				if (kp == std::string::npos) return 0;
+				return std::atoi(line.c_str() + kp + key.size() + 3);
+			};
+			const int in_t = parse_int("input_tokens");
+			const int out_t = parse_int("output_tokens");
+			if (in_t) input_tokens_ = in_t;
+			if (out_t) output_tokens_ += out_t;
+		}
 	}
 
-	// Token counts: find usage{} blocks in the tail, keep the last
-	// input_tokens we see, accumulate output_tokens across writes.
-	const size_t up = last_line.find("\"usage\":");
-	if (up != std::string::npos) {
-		auto parse_int = [&](const std::string& key) -> int {
-			const size_t kp = last_line.find("\"" + key + "\":", up);
-			if (kp == std::string::npos) return 0;
-			return std::atoi(last_line.c_str() + kp + key.size() + 3);
-		};
-		const int in_t = parse_int("input_tokens");
-		const int out_t = parse_int("output_tokens");
-		if (in_t) input_tokens_ = in_t;
-		if (out_t) output_tokens_ += out_t;
+	if (log_ && !last_assistant_text_.empty()) {
+		const size_t preview_n = std::min<size_t>(80, last_assistant_text_.size());
+		log_->logf("Agent %s: assistant_text[0..%zu]=\"%.*s\"\n",
+			owner_name_.c_str(), preview_n,
+			static_cast<int>(preview_n), last_assistant_text_.c_str());
 	}
 }
 
