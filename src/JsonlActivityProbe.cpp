@@ -1,5 +1,6 @@
 #include "JsonlActivityProbe.hpp"
 #include "Constants.hpp"
+#include "detail/JsonlParsing.hpp"
 
 #include <cstdlib>
 #include <fstream>
@@ -9,40 +10,8 @@ namespace ch {
 
 namespace fs = std::filesystem;
 
-namespace {
-
-// Walk forward through s from `start` (one past an opening JSON quote) to the
-// matching closing quote, respecting backslash escapes. Returns npos if unterminated.
-size_t find_json_string_end(const std::string& s, size_t start) {
-	while (start < s.size()) {
-		const char c = s[start];
-		if (c == '\\' && start + 1 < s.size()) { start += 2; continue; }
-		if (c == '"') return start;
-		++start;
-	}
-	return std::string::npos;
-}
-
-std::string unescape_json(const std::string& raw) {
-	std::string out;
-	out.reserve(raw.size());
-	for (size_t i = 0; i < raw.size(); ++i) {
-		if (raw[i] != '\\' || i + 1 >= raw.size()) { out += raw[i]; continue; }
-		switch (raw[i + 1]) {
-			case 'n':  out += '\n'; break;
-			case 't':  out += '\t'; break;
-			case 'r':  out += '\r'; break;
-			case '"':  out += '"';  break;
-			case '\\': out += '\\'; break;
-			case '/':  out += '/';  break;
-			default:   out += raw[i + 1]; break;
-		}
-		++i;
-	}
-	return out;
-}
-
-}
+using detail::find_json_string_end;
+using detail::unescape_json;
 
 JsonlActivityProbe::JsonlActivityProbe(fs::path jsonl_path,
                                        std::string owner_name,

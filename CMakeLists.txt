@@ -52,3 +52,20 @@ add_executable(claude-hub WIN32
 )
 target_include_directories(claude-hub PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(claude-hub PRIVATE imgui_lib ole32 shell32 uuid)
+
+# ─── Tests ───
+option(BUILD_TESTS "Build the claude-hub unit test suite" OFF)
+if(BUILD_TESTS)
+	include(FetchContent)
+	FetchContent_Declare(
+		googletest
+		GIT_REPOSITORY https://github.com/google/googletest
+		GIT_TAG v1.14.0
+	)
+	# Force shared CRT to match our main target (MSVC /MD).
+	set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+	FetchContent_MakeAvailable(googletest)
+
+	enable_testing()
+	add_subdirectory(tests)
+endif()
