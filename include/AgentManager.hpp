@@ -61,6 +61,7 @@ private:
 	struct ProbeStage {
 		unsigned int claude_pid = 0;
 		std::string cwd;
+		std::string session_id;  // from pid.json; used to attach the JSONL directly
 		std::set<std::string> jsonl_snapshot;
 	};
 	struct PendingSpawn {

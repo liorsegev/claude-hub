@@ -82,6 +82,7 @@ void AgentManager::spawn(const SpawnConfig& cfg) {
 					if (info) {
 						pr.claude_pid = info->pid;
 						pr.cwd = info->cwd;
+						pr.session_id = info->session_id;
 						claimed_pids_.insert(info->pid);
 						break;
 					}
@@ -129,13 +130,21 @@ int AgentManager::commit_window_stage(WindowStage w,
 		return -1;
 	}
 
+	// For Claude we must leave cwd empty here; otherwise discover_jsonls would
+	// treat the agent as "has cwd but no probe" between window-stage and
+	// probe-stage and FIFO-claim a stale .jsonl from the project dir. Claude's
+	// probe stage will populate cwd from pid.json.
+	// For non-telemetry kinds (Copilot/Gemini) there is no probe stage, and
+	// discover_jsonls filters them out by kind, so the cwd_hint is harmless.
+	const std::string initial_cwd = (kind == AgentKind::Claude) ? std::string{} : cwd_hint;
+
 	auto agent = std::make_unique<Agent>(
 		kind,
 		w.unique_name,
 		w.window,
 		w.process_handle,
 		0,                           // claude_pid filled by probe stage (claude only)
-		cwd_hint,                    // cwd; claude probe stage may overwrite with pid.json cwd
+		initial_cwd,
 		std::set<std::string>{},     // jsonl_snapshot filled by probe stage
 		spawn_time);
 
@@ -161,8 +170,8 @@ void AgentManager::commit_probe_stage(int agent_index, ProbeStage p) {
 		log_.logf("Agent %s: pid.json NOT FOUND after spawn\n", a.name().c_str());
 		return;
 	}
-	log_.logf("Agent %s: claude pid=%u cwd=%s\n",
-		a.name().c_str(), p.claude_pid, p.cwd.c_str());
+	log_.logf("Agent %s: claude pid=%u cwd=%s sid=%s\n",
+		a.name().c_str(), p.claude_pid, p.cwd.c_str(), p.session_id.c_str());
 
 	// Fold in any JSONLs already attached to sibling agents so discover_jsonls
 	// doesn't re-claim one of theirs.
@@ -170,9 +179,23 @@ void AgentManager::commit_probe_stage(int agent_index, ProbeStage p) {
 		if (!ag->jsonl_path().empty())
 			p.jsonl_snapshot.insert(ag->jsonl_path().filename().string());
 
+	const std::string cwd_copy = p.cwd;
+	const std::string sid_copy = p.session_id;
+
 	a.set_claude_pid(p.claude_pid);
 	a.set_cwd(std::move(p.cwd));
 	a.set_jsonl_snapshot(std::move(p.jsonl_snapshot));
+
+	// Attach the JSONL directly via session_id from pid.json. This avoids the
+	// FIFO-discovery race where an old .jsonl in the project dir would be
+	// matched before Claude's new one shows up (or worse, when Claude has
+	// already created its new .jsonl by the time we snapshot, marking it
+	// "old" and forcing discover_jsonls to pick a genuinely stale sibling).
+	if (!sid_copy.empty()) {
+		const std::filesystem::path jsonl =
+			ClaudeSessionDiscovery::project_dir_for(cwd_copy) / (sid_copy + ".jsonl");
+		a.attach_jsonl(jsonl, &log_);
+	}
 }
 
 void AgentManager::kill(int index) {

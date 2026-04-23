@@ -39,6 +39,7 @@ private:
 	std::unique_ptr<AgentManager> manager_;
 	Sidebar sidebar_;
 	bool quitting_ = false;
+	bool active_hidden_for_modal_ = false;
 	int frame_count_ = 0;
 };
 
