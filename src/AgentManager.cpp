@@ -1,6 +1,7 @@
 #include "AgentManager.hpp"
 #include "ClaudeSessionDiscovery.hpp"
 #include "Constants.hpp"
+#include "IAgentDriver.hpp"
 #include "WindowsTerminalSpawner.hpp"
 
 #include <algorithm>
@@ -16,44 +17,62 @@ AgentManager::AgentManager(HWND container_window, Logger& log)
 	, log_(log)
 	, flag_watcher_(ClaudeSessionDiscovery::home_dir() / ".claude" / "hub-waiting") {}
 
-void AgentManager::spawn() {
+void AgentManager::spawn(const SpawnConfig& cfg) {
+	IAgentDriver& driver = get_driver(cfg.kind);
+
 	char unique_name[64];
-	std::snprintf(unique_name, sizeof(unique_name), "chub_%llu_%d",
+	std::snprintf(unique_name, sizeof(unique_name), "%s_%llu_%d",
+		driver.name_prefix(),
 		static_cast<unsigned long long>(GetTickCount64()), next_id_++);
 	const std::string name(unique_name);
 
-	const auto pid_snapshot = ClaudeSessionDiscovery::snapshot_pid_jsons();
+	// Claude requires a pre-spawn snapshot to later pick out "its" pid.json;
+	// other kinds don't touch ~/.claude/sessions/.
+	const auto pid_snapshot = driver.uses_claude_telemetry()
+		? ClaudeSessionDiscovery::snapshot_pid_jsons()
+		: std::set<unsigned int>{};
 	const std::vector<HWND> before = WindowsTerminalSpawner::enumerate_candidate_windows();
 	const auto spawn_time = std::chrono::steady_clock::now();
-	const std::string claude_exe = ClaudeSessionDiscovery::claude_exe_path().string();
+	const std::string command = driver.build_command();
+	const fs::path cwd = cfg.cwd;
+	const std::string cwd_str = cwd.string();
+	const bool uses_telemetry = driver.uses_claude_telemetry();
 
-	log_.logf("Agent %s: spawn queued\n", name.c_str());
+	log_.logf("Agent %s: spawn queued (kind=%s cwd=%s)\n",
+		name.c_str(), to_string(cfg.kind),
+		cwd_str.empty() ? "<inherit>" : cwd_str.c_str());
 
 	// Two-stage async: emit the window as soon as it's found so the UI can
 	// dock the terminal; continue on the same thread to find the pid.json
-	// and emit the probe info later.
+	// and emit the probe info later (Claude only).
 	auto window_promise = std::make_shared<std::promise<WindowStage>>();
 	auto probe_promise  = std::make_shared<std::promise<ProbeStage>>();
 
 	PendingSpawn ps;
+	ps.kind           = cfg.kind;
+	ps.cwd_hint       = cwd_str;
 	ps.spawn_time     = spawn_time;
 	ps.window_future  = window_promise->get_future();
 	ps.probe_future   = probe_promise->get_future();
 	pending_spawns_.push_back(std::move(ps));
 
 	std::thread(
-		[this, name, pid_snapshot, before, claude_exe, window_promise, probe_promise]() {
+		[this, name, pid_snapshot, before, command, cwd, uses_telemetry,
+		 window_promise, probe_promise]() {
 			// ── Stage 1: launch wt.exe and find the new terminal window ──
 			WindowStage w;
 			w.unique_name = name;
-			auto sr = WindowsTerminalSpawner::spawn(name, claude_exe, before);
+			auto sr = WindowsTerminalSpawner::spawn(name, command, cwd, before);
 			w.window = sr.window;
 			w.process_handle = sr.process_handle;
 			window_promise->set_value(w);
 
-			if (!sr.window) { probe_promise->set_value({}); return; }
+			if (!sr.window || !uses_telemetry) {
+				probe_promise->set_value({});
+				return;
+			}
 
-			// ── Stage 2: claim the pid.json this spawn produced ──
+			// ── Stage 2: claim the pid.json this claude spawn produced ──
 			ProbeStage pr;
 			{
 				std::lock_guard<std::mutex> lock(claim_mutex_);
@@ -84,7 +103,8 @@ void AgentManager::poll_pending_spawns() {
 		if (it->agent_index < 0 && it->window_future.valid() &&
 		    it->window_future.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
 			WindowStage w = it->window_future.get();
-			it->agent_index = commit_window_stage(std::move(w), it->spawn_time);
+			it->agent_index = commit_window_stage(
+				std::move(w), it->kind, it->cwd_hint, it->spawn_time);
 			if (it->agent_index < 0) { it = pending_spawns_.erase(it); continue; }
 		}
 
@@ -101,6 +121,8 @@ void AgentManager::poll_pending_spawns() {
 }
 
 int AgentManager::commit_window_stage(WindowStage w,
+                                       AgentKind kind,
+                                       const std::string& cwd_hint,
                                        std::chrono::steady_clock::time_point spawn_time) {
 	if (!w.window) {
 		log_.logf("Agent %s: WT spawn failed\n", w.unique_name.c_str());
@@ -108,12 +130,13 @@ int AgentManager::commit_window_stage(WindowStage w,
 	}
 
 	auto agent = std::make_unique<Agent>(
+		kind,
 		w.unique_name,
 		w.window,
 		w.process_handle,
-		0,                           // claude_pid filled in by probe stage
-		std::string{},               // cwd filled in by probe stage
-		std::set<std::string>{},     // jsonl_snapshot filled in by probe stage
+		0,                           // claude_pid filled by probe stage (claude only)
+		cwd_hint,                    // cwd; claude probe stage may overwrite with pid.json cwd
+		std::set<std::string>{},     // jsonl_snapshot filled by probe stage
 		spawn_time);
 
 	agent->reparent_as_child(container_);
@@ -252,11 +275,13 @@ void AgentManager::reap_dead() {
 }
 
 void AgentManager::discover_jsonls() {
-	// FIFO match: oldest unclaimed agent <- oldest unclaimed JSONL (by mtime).
+	// FIFO match: oldest unclaimed Claude agent <- oldest unclaimed JSONL (by mtime).
 	std::vector<int> unclaimed;
-	for (int j = 0; j < static_cast<int>(agents_.size()); ++j)
-		if (!agents_[j]->has_probe() && !agents_[j]->cwd().empty())
-			unclaimed.push_back(j);
+	for (int j = 0; j < static_cast<int>(agents_.size()); ++j) {
+		const Agent& a = *agents_[j];
+		if (a.kind() != AgentKind::Claude) continue;
+		if (!a.has_probe() && !a.cwd().empty()) unclaimed.push_back(j);
+	}
 
 	if (unclaimed.empty()) return;
 

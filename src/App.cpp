@@ -54,7 +54,7 @@ void App::frame() {
 	imgui_->begin_frame();
 
 	const RECT cr = window_->client_rect();
-	const SidebarCommands cmd = sidebar_.draw(*manager_, cr.right, cr.bottom);
+	const SidebarCommands cmd = sidebar_.draw(*manager_, window_->hwnd(), cr.right, cr.bottom);
 	apply_sidebar_commands(cmd);
 
 	d3d_->clear(CLEAR_COLOR);
@@ -63,7 +63,7 @@ void App::frame() {
 }
 
 void App::apply_sidebar_commands(const SidebarCommands& cmd) {
-	if (cmd.spawn_requested)         manager_->spawn();
+	if (cmd.spawn_requested)         manager_->spawn(*cmd.spawn_requested);
 	if (cmd.kill_active_requested)   manager_->kill(manager_->active_index());
 	if (cmd.switch_to_index >= 0)    manager_->switch_to(cmd.switch_to_index);
 	if (cmd.kill_index >= 0)         manager_->kill(cmd.kill_index);

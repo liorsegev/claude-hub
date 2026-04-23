@@ -8,6 +8,7 @@
 #endif
 #include <windows.h>
 
+#include "AgentKind.hpp"
 #include "IActivityProbe.hpp"
 #include "Logger.hpp"
 
@@ -19,11 +20,12 @@
 
 namespace ch {
 
-// Owns a single Claude CLI session: the embedded WT child window,
-// the Claude process handle, and a lazy activity probe.
+// Owns a single CLI agent session: the embedded WT child window,
+// the WT process handle, and (for kinds with telemetry) a lazy activity probe.
 class Agent {
 public:
-	Agent(std::string name,
+	Agent(AgentKind kind,
+	      std::string name,
 	      HWND wt_window,
 	      HANDLE wt_process,
 	      unsigned int claude_pid,
@@ -39,6 +41,7 @@ public:
 	Agent& operator=(Agent&&) = delete;
 
 	// Accessors
+	AgentKind kind() const { return kind_; }
 	const std::string& name() const { return name_; }
 	HWND window() const { return window_; }
 	unsigned int claude_pid() const { return claude_pid_; }
@@ -73,6 +76,7 @@ public:
 	void set_waiting(bool w) { waiting_ = w; }
 
 private:
+	AgentKind kind_;
 	std::string name_;
 	HWND window_;
 	HANDLE process_;

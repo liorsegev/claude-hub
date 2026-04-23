@@ -3,14 +3,16 @@
 
 namespace ch {
 
-Agent::Agent(std::string name,
+Agent::Agent(AgentKind kind,
+             std::string name,
              HWND wt_window,
              HANDLE wt_process,
              unsigned int claude_pid,
              std::string cwd,
              std::set<std::string> jsonl_snapshot,
              std::chrono::steady_clock::time_point spawn_time)
-	: name_(std::move(name))
+	: kind_(kind)
+	, name_(std::move(name))
 	, window_(wt_window)
 	, process_(wt_process)
 	, claude_pid_(claude_pid)

@@ -35,11 +35,14 @@ std::vector<HWND> WindowsTerminalSpawner::enumerate_candidate_windows() {
 
 WindowsTerminalSpawner::SpawnResult
 WindowsTerminalSpawner::spawn(const std::string& title,
-                              const std::string& claude_exe_path,
+                              const std::string& command_tail,
+                              const std::filesystem::path& cwd,
                               const std::vector<HWND>& before_snapshot) {
 	SpawnResult result;
 
-	std::string cmd = "wt.exe -w -1 --title \"" + title + "\" -- " + claude_exe_path;
+	std::string cmd = "wt.exe -w -1 --title \"" + title + "\"";
+	if (!cwd.empty()) cmd += " -d \"" + cwd.string() + "\"";
+	cmd += " -- " + command_tail;
 
 	STARTUPINFOA si{};
 	si.cb = sizeof(si);

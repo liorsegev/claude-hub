@@ -1,9 +1,14 @@
 #include "Sidebar.hpp"
 #include "Constants.hpp"
+#include "FolderPicker.hpp"
 #include "IActivityProbe.hpp"
 
 #include <imgui.h>
+#include <algorithm>
+#include <cstring>
+#include <filesystem>
 #include <string>
+#include <system_error>
 
 namespace ch {
 
@@ -11,6 +16,8 @@ namespace {
 
 constexpr int PREVIEW_HEIGHT_PX = 90;
 constexpr size_t PREVIEW_MAX_CHARS = 240;
+constexpr size_t CWD_BUFFER_SIZE = 1024;
+constexpr const char* NEW_AGENT_POPUP_ID = "New Agent";
 
 ImVec4 color_for(bool active, bool waiting, bool blink_on) {
 	constexpr ImVec4 ACTIVE{0.4f, 1.0f, 0.4f, 1.0f};
@@ -44,7 +51,9 @@ std::string short_label(const std::string& name, bool is_active, bool is_waiting
 
 }
 
-SidebarCommands Sidebar::draw(const AgentManager& manager, int client_w, int client_h) {
+SidebarCommands Sidebar::draw(const AgentManager& manager,
+                              HWND owner,
+                              int client_w, int client_h) {
 	SidebarCommands cmd;
 
 	ImGui::SetNextWindowPos(ImVec2(static_cast<float>(client_w - constants::SIDEBAR_WIDTH_PX), 0));
@@ -53,13 +62,81 @@ SidebarCommands Sidebar::draw(const AgentManager& manager, int client_w, int cli
 	ImGui::Begin("##sidebar", nullptr,
 		ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
 
-	if (ImGui::Button("+ New Agent", ImVec2(-1, constants::BUTTON_HEIGHT_PX)))
-		cmd.spawn_requested = true;
+	if (ImGui::Button("+ New Agent", ImVec2(-1, constants::BUTTON_HEIGHT_PX))) {
+		// Pre-fill defaults every time the dialog opens, so the user can just
+		// hit Create to get "Claude in current directory".
+		new_agent_kind_ = AgentKind::Claude;
+		std::error_code ec;
+		new_agent_cwd_ = std::filesystem::current_path(ec).string();
+		new_agent_pending_open_ = true;
+	}
 	if (ImGui::Button("Kill Active", ImVec2(-1, constants::BUTTON_HEIGHT_PX)))
 		cmd.kill_active_requested = true;
 	ImGui::Separator();
 	ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1), "Yellow = waiting for input");
 	ImGui::Separator();
+
+	// OpenPopup must be called inside the same ImGui ID stack as BeginPopupModal
+	// below; doing it from the button click is fine but we defer by one frame
+	// so the modal draws on top of the sidebar rather than clipped inside it.
+	if (new_agent_pending_open_) {
+		ImGui::OpenPopup(NEW_AGENT_POPUP_ID);
+		new_agent_pending_open_ = false;
+	}
+
+	// Centre the modal on the main window.
+	ImGui::SetNextWindowPos(
+		ImVec2(client_w * 0.5f, client_h * 0.5f),
+		ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+	ImGui::SetNextWindowSize(ImVec2(460, 0), ImGuiCond_Appearing);
+
+	if (ImGui::BeginPopupModal(NEW_AGENT_POPUP_ID, nullptr,
+			ImGuiWindowFlags_AlwaysAutoResize)) {
+		ImGui::TextUnformatted("Agent type");
+		ImGui::RadioButton("Claude",  reinterpret_cast<int*>(&new_agent_kind_),
+			static_cast<int>(AgentKind::Claude));
+		ImGui::SameLine();
+		ImGui::RadioButton("Copilot", reinterpret_cast<int*>(&new_agent_kind_),
+			static_cast<int>(AgentKind::Copilot));
+		ImGui::SameLine();
+		ImGui::RadioButton("Gemini",  reinterpret_cast<int*>(&new_agent_kind_),
+			static_cast<int>(AgentKind::Gemini));
+
+		ImGui::Spacing();
+		ImGui::TextUnformatted("Project folder");
+
+		char buf[CWD_BUFFER_SIZE];
+		const size_t n = std::min(new_agent_cwd_.size(), sizeof(buf) - 1);
+		std::memcpy(buf, new_agent_cwd_.data(), n);
+		buf[n] = '\0';
+		ImGui::SetNextItemWidth(-80.0f);
+		if (ImGui::InputText("##cwd", buf, sizeof(buf)))
+			new_agent_cwd_.assign(buf);
+		ImGui::SameLine();
+		if (ImGui::Button("Browse…", ImVec2(-1, 0))) {
+			auto picked = pick_folder(owner, std::filesystem::path(new_agent_cwd_));
+			if (picked) new_agent_cwd_ = picked->string();
+		}
+
+		ImGui::Spacing();
+		ImGui::Separator();
+		ImGui::Spacing();
+
+		const float btn_w = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+		if (ImGui::Button("Create", ImVec2(btn_w, 0))) {
+			SpawnConfig cfg;
+			cfg.kind = new_agent_kind_;
+			if (!new_agent_cwd_.empty())
+				cfg.cwd = std::filesystem::path(new_agent_cwd_);
+			cmd.spawn_requested = cfg;
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel", ImVec2(btn_w, 0)))
+			ImGui::CloseCurrentPopup();
+
+		ImGui::EndPopup();
+	}
 
 	const bool blink_on = (GetTickCount64() / constants::BLINK_PERIOD_MS) % 2 == 0;
 	const int active_idx = manager.active_index();

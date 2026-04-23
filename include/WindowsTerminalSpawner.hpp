@@ -8,6 +8,7 @@
 #endif
 #include <windows.h>
 
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -27,8 +28,11 @@ public:
 
 	static std::vector<HWND> enumerate_candidate_windows();
 
+	// `command_tail` is what follows `wt.exe --title "..." [-d "<cwd>"] -- `.
+	// `cwd` may be empty — in that case wt.exe inherits the launcher's cwd.
 	static SpawnResult spawn(const std::string& title,
-	                         const std::string& claude_exe_path,
+	                         const std::string& command_tail,
+	                         const std::filesystem::path& cwd,
 	                         const std::vector<HWND>& before_snapshot);
 };
 

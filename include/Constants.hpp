@@ -20,4 +20,10 @@ inline constexpr int WT_POLL_SLEEP_MS = 25;
 inline constexpr int SESSION_FILE_POLL_ATTEMPTS = 200;
 inline constexpr int WT_SPAWN_WAIT_MS = 5000;
 
+// ─── CLI defaults ───
+// wt.exe -- <cmd> goes through CreateProcess, which does NOT honor PATHEXT,
+// so .cmd shims need to be named explicitly. Edit if your install differs.
+inline constexpr const char* COPILOT_COMMAND = "copilot";       // ships as copilot.exe
+inline constexpr const char* GEMINI_COMMAND  = "gemini.cmd";    // npm shim
+
 }

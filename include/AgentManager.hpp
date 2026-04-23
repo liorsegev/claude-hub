@@ -10,6 +10,7 @@
 
 #include "Agent.hpp"
 #include "Logger.hpp"
+#include "SpawnConfig.hpp"
 #include "WaitingFlagWatcher.hpp"
 
 #include <chrono>
@@ -29,7 +30,7 @@ class AgentManager {
 public:
 	AgentManager(HWND container_window, Logger& log);
 
-	void spawn();
+	void spawn(const SpawnConfig& cfg);
 	void kill(int index);
 	void switch_to(int index);
 
@@ -63,6 +64,8 @@ private:
 		std::set<std::string> jsonl_snapshot;
 	};
 	struct PendingSpawn {
+		AgentKind kind = AgentKind::Claude;
+		std::string cwd_hint;  // cwd passed to wt.exe; used when no pid.json
 		std::chrono::steady_clock::time_point spawn_time;
 		std::future<WindowStage> window_future;
 		std::future<ProbeStage> probe_future;
@@ -75,6 +78,8 @@ private:
 	void update_waiting();
 	void poll_pending_spawns();
 	int commit_window_stage(WindowStage w,
+	                        AgentKind kind,
+	                        const std::string& cwd_hint,
 	                        std::chrono::steady_clock::time_point spawn_time);
 	void commit_probe_stage(int agent_index, ProbeStage p);
 

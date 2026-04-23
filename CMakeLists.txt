@@ -38,9 +38,11 @@ add_executable(claude-hub WIN32
 	src/App.cpp
 	src/Logger.cpp
 	src/Agent.cpp
+	src/AgentDrivers.cpp
 	src/AgentManager.cpp
 	src/ClaudeSessionDiscovery.cpp
 	src/D3D11Context.cpp
+	src/FolderPicker.cpp
 	src/ImGuiRuntime.cpp
 	src/JsonlActivityProbe.cpp
 	src/MainWindow.cpp
@@ -49,4 +51,4 @@ add_executable(claude-hub WIN32
 	src/WindowsTerminalSpawner.cpp
 )
 target_include_directories(claude-hub PRIVATE ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(claude-hub PRIVATE imgui_lib)
+target_link_libraries(claude-hub PRIVATE imgui_lib ole32 shell32 uuid)
