@@ -23,9 +23,6 @@ struct SidebarCommands {
 	bool kill_active_requested = false;
 	int switch_to_index = -1;
 	int kill_index = -1;
-	// True while the New-Agent modal is on screen. App uses this to hide the
-	// active terminal child HWND, which would otherwise z-order above the modal.
-	bool new_agent_modal_open = false;
 };
 
 class Sidebar {

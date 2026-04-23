@@ -63,23 +63,6 @@ void App::frame() {
 }
 
 void App::apply_sidebar_commands(const SidebarCommands& cmd) {
-	// Terminal child HWNDs z-order above the D3D11 surface that ImGui paints
-	// into, so any ImGui modal would render beneath them. While the New-Agent
-	// modal is open, hide the active agent; reveal it on close.
-	if (cmd.new_agent_modal_open != active_hidden_for_modal_) {
-		active_hidden_for_modal_ = cmd.new_agent_modal_open;
-		const int idx = manager_->active_index();
-		if (idx >= 0) {
-			Agent& a = *manager_->agents()[idx];
-			if (active_hidden_for_modal_) {
-				a.hide();
-			} else {
-				manager_->reposition_active();
-				a.show();
-			}
-		}
-	}
-
 	if (cmd.spawn_requested)         manager_->spawn(*cmd.spawn_requested);
 	if (cmd.kill_active_requested)   manager_->kill(manager_->active_index());
 	if (cmd.switch_to_index >= 0)    manager_->switch_to(cmd.switch_to_index);

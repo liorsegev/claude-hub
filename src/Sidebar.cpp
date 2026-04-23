@@ -92,7 +92,6 @@ SidebarCommands Sidebar::draw(const AgentManager& manager,
 
 	if (ImGui::BeginPopupModal(NEW_AGENT_POPUP_ID, nullptr,
 			ImGuiWindowFlags_AlwaysAutoResize)) {
-		cmd.new_agent_modal_open = true;
 		ImGui::TextUnformatted("Agent type");
 		ImGui::RadioButton("Claude",  reinterpret_cast<int*>(&new_agent_kind_),
 			static_cast<int>(AgentKind::Claude));
