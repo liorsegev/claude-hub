@@ -21,18 +21,36 @@ live preview of the last assistant reply.
 - Optional hook (`scripts/claude_hub_notify.ps1`) that forwards Claude Code's
   `Stop` / `Notification` events as waiting flags, for instant signalling.
 
-## Requirements
+## Install (end users)
+
+Download `agents-hub-setup-<version>.exe` from the
+[Releases](https://github.com/liorsegev/claude-hub/releases) page and double-click.
+
+The installer is **unsigned** for now, so Windows SmartScreen will show
+"Windows protected your PC". Click **More info → Run anyway** — the installer
+runs in your normal user context, drops files only into its install dir, and
+creates a working uninstaller in *Apps & Features*.
+
+After install you still need at least one CLI on PATH:
+
+- **Claude**: install [Claude Code](https://docs.claude.com/en/docs/claude-code) so `%USERPROFILE%\.local\bin\claude.exe` exists.
+- **Copilot**: `npm i -g @github/copilot` (provides `copilot` on PATH).
+- **Gemini**: `npm i -g @google/gemini-cli` (provides `gemini.cmd`).
+
+Plus [Windows Terminal](https://apps.microsoft.com/detail/9n0dx20hk701) — pre-installed on Windows 11; install from the Store on Windows 10.
+
+## End-user requirements
 
 - Windows 10 1809+ or Windows 11 (needs modern ConPTY and Windows Terminal).
-- [Windows Terminal](https://apps.microsoft.com/detail/9n0dx20hk701) (`wt.exe` on PATH).
-- At least one of:
-  - [Claude Code](https://docs.claude.com/en/docs/claude-code) installed at
-    `%USERPROFILE%\.local\bin\claude.exe`.
-  - GitHub Copilot CLI: `copilot` on PATH.
-  - Google Gemini CLI: `gemini.cmd` on PATH (`npm i -g @google/gemini-cli`).
+- `wt.exe` on PATH (above).
+- At least one CLI from the list above.
+
+## Developer requirements
+
 - Visual Studio 2022 (with the **Desktop development with C++** workload) or any
   MSVC toolchain + CMake 3.20+.
 - Git (CMake's `FetchContent` pulls Dear ImGui from GitHub at configure time).
+- [Inno Setup 6](https://jrsoftware.org/isinfo.php) — only needed to build the installer.
 
 ## Build
 
@@ -71,6 +89,22 @@ ctest --test-dir cmake-build-tests --output-on-failure
 
 In CLion / VS, set `-DBUILD_TESTS=ON` on your CMake profile and the
 `agents_hub_tests` target plus per-test gutter ▶ icons appear automatically.
+
+## Build the installer (devs)
+
+Produces `installer\Output\agents-hub-setup-<version>.exe` ready to ship to
+end users on a clean Windows PC. No MSVC redistributable required — the
+binary statically links the C/C++ runtime.
+
+From the repo root:
+
+```powershell
+pwsh -ExecutionPolicy Bypass -File installer\build-installer.ps1
+```
+
+The script imports vcvars, runs CMake with `-DSTATIC_RUNTIME=ON -DBUILD_TESTS=OFF`
+into `cmake-build-installer\`, then invokes Inno Setup's `ISCC.exe`. Tweak
+version / publisher in `installer\agents-hub.iss`.
 
 ## Optional: waiting-notification hook (Claude only)
 

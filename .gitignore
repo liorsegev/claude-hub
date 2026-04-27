@@ -1,5 +1,6 @@
 build/
 cmake-build-*/
+installer/Output/
 .vs/
 *.user
 CMakeSettings.json

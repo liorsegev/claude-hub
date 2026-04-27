@@ -4,9 +4,25 @@ project(agents-hub LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# We don't use C++20 modules. CMake's module-scanning rules have collided with
+# Ninja under some toolchain combinations (literal "$Configuration" tokens
+# leaking into rules.ninja). Turning the scanner off avoids that whole rule
+# family and trims a few seconds off configure time.
+set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
+
 if(MSVC)
 	add_compile_options(/Zc:__cplusplus /permissive-)
 	add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0A00)
+endif()
+
+# When ON, agents-hub links the C/C++ runtime statically (/MT) so the resulting
+# .exe has zero MSVC redistributable dependencies — required for shipping the
+# installer to clean PCs. Off by default to keep the test build (which links
+# GoogleTest with shared CRT) working unchanged. Configure the installer build
+# in its own dir, e.g. -B cmake-build-installer -DSTATIC_RUNTIME=ON.
+option(STATIC_RUNTIME "Statically link the MSVC C/C++ runtime (/MT)" OFF)
+if(MSVC AND STATIC_RUNTIME)
+	set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 
 # ─── ImGui ───
