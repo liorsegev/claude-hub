@@ -41,7 +41,7 @@ App::App() : log_("debug.log") {}
 
 int App::run() {
 	window_ = std::make_unique<MainWindow>(
-		L"Claude-Hub",
+		L"Agents-Hub",
 		constants::WINDOW_INIT_W,
 		constants::WINDOW_INIT_H,
 		*this);

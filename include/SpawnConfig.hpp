@@ -10,7 +10,7 @@ namespace ch {
 // Sidebar (dialog) -> App -> AgentManager::spawn.
 struct SpawnConfig {
 	AgentKind kind = AgentKind::Claude;
-	// Working directory passed to wt.exe via -d. Empty => inherit claude-hub's cwd.
+	// Working directory passed to wt.exe via -d. Empty => inherit agents-hub's cwd.
 	std::filesystem::path cwd;
 };
 

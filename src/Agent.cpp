@@ -44,7 +44,7 @@ void Agent::close() {
 		claude_pid_ = 0;  // make this method idempotent
 	}
 
-	// Detach the wt window from claude-hub before asking it to close. Without
+	// Detach the wt window from agents-hub before asking it to close. Without
 	// this, wt's destruction would propagate up our parent chain and could
 	// disturb sibling layout for one frame.
 	if (window_ && IsWindow(window_)) {

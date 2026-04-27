@@ -17,7 +17,7 @@ namespace {
 class ProbeFixture : public ::testing::Test {
 protected:
 	void SetUp() override {
-		tmp_dir_ = fs::temp_directory_path() / "claude-hub-probe-test";
+		tmp_dir_ = fs::temp_directory_path() / "agents-hub-probe-test";
 		fs::remove_all(tmp_dir_);
 		fs::create_directories(tmp_dir_);
 		jsonl_path_ = tmp_dir_ / "session.jsonl";

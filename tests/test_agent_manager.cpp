@@ -22,7 +22,7 @@ namespace {
 class FreshManager : public ::testing::Test {
 protected:
 	void SetUp() override {
-		log_path_ = fs::temp_directory_path() / "claude_hub_agent_mgr_test.log";
+		log_path_ = fs::temp_directory_path() / "agents_hub_agent_mgr_test.log";
 		log_ = std::make_unique<Logger>(log_path_);
 		mgr_ = std::make_unique<AgentManager>(/*container=*/nullptr, *log_);
 	}

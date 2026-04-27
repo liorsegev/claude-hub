@@ -1,6 +1,6 @@
 include(GoogleTest)
 
-add_executable(claude_hub_tests
+add_executable(agents_hub_tests
 	test_jsonl_parsing.cpp
 	test_agent_driver.cpp
 	test_claude_session.cpp
@@ -21,12 +21,12 @@ add_executable(claude_hub_tests
 	${CMAKE_SOURCE_DIR}/src/WindowsTerminalSpawner.cpp
 )
 
-target_include_directories(claude_hub_tests PRIVATE
+target_include_directories(agents_hub_tests PRIVATE
 	${CMAKE_SOURCE_DIR}/include
 )
 
-target_link_libraries(claude_hub_tests PRIVATE
+target_link_libraries(agents_hub_tests PRIVATE
 	GTest::gtest_main
 )
 
-gtest_discover_tests(claude_hub_tests)
+gtest_discover_tests(agents_hub_tests)

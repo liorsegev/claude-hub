@@ -70,7 +70,7 @@ public:
 	bool is_alive() const;
 
 	// Tear down the inner CLI process (if known), unparent the wt window from
-	// claude-hub's hierarchy, and post WM_CLOSE so wt itself shuts down. Safe
+	// agents-hub's hierarchy, and post WM_CLOSE so wt itself shuts down. Safe
 	// to call multiple times; idempotent. Called automatically from ~Agent so
 	// dropping the unique_ptr is enough to fully clean up.
 	void close();

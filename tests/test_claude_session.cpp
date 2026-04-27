@@ -19,7 +19,7 @@ class TempHome : public ::testing::Test {
 protected:
 	void SetUp() override {
 		const fs::path tmp = fs::temp_directory_path() /
-			("claude-hub-test-" + std::to_string(
+			("agents-hub-test-" + std::to_string(
 				std::hash<const void*>{}(this)));
 		fs::remove_all(tmp);
 		fs::create_directories(tmp);
