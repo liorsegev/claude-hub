@@ -34,9 +34,13 @@ public:
 	void kill(int index);
 	void switch_to(int index);
 
-	// Called periodically from the frame loop:
+	// Cheap; called every frame so the dock-the-window step happens with
+	// minimal latency once the spawn worker reports its window is ready.
+	void poll_spawns();
+
+	// Heavier filesystem / process work. Called every TICK_EVERY_N_FRAMES.
 	//   - reap dead agents
-	//   - FIFO-match newly-created JSONLs to unclaimed agents
+	//   - FIFO-match newly-created JSONLs to unclaimed agents (fallback)
 	//   - poll each agent's activity probe
 	//   - recompute waiting state
 	void tick();
@@ -47,6 +51,7 @@ public:
 	int active_index() const { return active_; }
 	const std::vector<std::unique_ptr<Agent>>& agents() const { return agents_; }
 	size_t size() const { return agents_.size(); }
+	size_t pending_spawn_count() const { return pending_spawns_.size(); }
 
 private:
 	// Two-stage background spawn: the window stage finishes quickly (wt
@@ -77,7 +82,6 @@ private:
 	void discover_jsonls();
 	void sync_pid_state();
 	void update_waiting();
-	void poll_pending_spawns();
 	int commit_window_stage(WindowStage w,
 	                        AgentKind kind,
 	                        const std::string& cwd_hint,

@@ -1,10 +1,40 @@
 #include "App.hpp"
 #include "Constants.hpp"
 
+#include <imgui.h>
+
 namespace ch {
 
 namespace {
+
 constexpr float CLEAR_COLOR[4] = {0.1f, 0.1f, 0.12f, 1.0f};
+
+// Renders a centered "Spawning agent…" placeholder over the agent area while
+// at least one spawn is in flight. Lives in App rather than Sidebar so it can
+// cover the full agent region (Sidebar's draw is constrained to its column).
+void draw_spawning_overlay(int agent_area_w, int client_h) {
+	if (agent_area_w <= 0 || client_h <= 0) return;
+
+	ImGui::SetNextWindowPos(ImVec2(0, 0));
+	ImGui::SetNextWindowSize(ImVec2(static_cast<float>(agent_area_w),
+	                                 static_cast<float>(client_h)));
+	ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.10f, 0.10f, 0.12f, 0.85f));
+	ImGui::Begin("##spawning_overlay", nullptr,
+		ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+		ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
+		ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNav);
+
+	const char* msg = "Spawning agent...";
+	const ImVec2 ts = ImGui::CalcTextSize(msg);
+	ImGui::SetCursorPos(ImVec2(
+		(agent_area_w - ts.x) * 0.5f,
+		(client_h     - ts.y) * 0.5f));
+	ImGui::TextColored(ImVec4(0.85f, 0.85f, 0.85f, 1.0f), "%s", msg);
+
+	ImGui::End();
+	ImGui::PopStyleColor();
+}
+
 }
 
 App::App() : log_("debug.log") {}
@@ -48,6 +78,11 @@ void App::on_quit() {
 void App::frame() {
 	d3d_->apply_pending_resize();
 
+	// Spawn polling is cheap (two future::wait_for(0) per pending spawn) and
+	// is what gates how quickly a freshly-created terminal docks into the UI;
+	// run it every frame so we don't add up to TICK_EVERY_N_FRAMES of latency.
+	manager_->poll_spawns();
+
 	if (++frame_count_ % constants::TICK_EVERY_N_FRAMES == 0)
 		manager_->tick();
 
@@ -56,6 +91,9 @@ void App::frame() {
 	const RECT cr = window_->client_rect();
 	const SidebarCommands cmd = sidebar_.draw(*manager_, window_->hwnd(), cr.right, cr.bottom);
 	apply_sidebar_commands(cmd);
+
+	if (manager_->pending_spawn_count() > 0)
+		draw_spawning_overlay(cr.right - constants::SIDEBAR_WIDTH_PX, cr.bottom);
 
 	d3d_->clear(CLEAR_COLOR);
 	imgui_->render_draw_data();

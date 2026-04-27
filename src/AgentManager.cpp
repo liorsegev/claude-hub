@@ -98,7 +98,7 @@ void AgentManager::spawn(const SpawnConfig& cfg) {
 	).detach();
 }
 
-void AgentManager::poll_pending_spawns() {
+void AgentManager::poll_spawns() {
 	for (auto it = pending_spawns_.begin(); it != pending_spawns_.end(); ) {
 		// Window stage: dock as soon as ready.
 		if (it->agent_index < 0 && it->window_future.valid() &&
@@ -233,7 +233,6 @@ void AgentManager::reposition_active() {
 }
 
 void AgentManager::tick() {
-	poll_pending_spawns();
 	reap_dead();
 	discover_jsonls();
 	sync_pid_state();
