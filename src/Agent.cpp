@@ -21,7 +21,37 @@ Agent::Agent(AgentKind kind,
 	, spawn_time_(spawn_time) {}
 
 Agent::~Agent() {
+	close();
 	if (process_) CloseHandle(process_);
+}
+
+void Agent::close() {
+	// Hide first so the window doesn't briefly flash as a top-level desktop
+	// window between the SetParent(NULL) below and WM_CLOSE being processed.
+	if (window_ && IsWindow(window_))
+		ShowWindow(window_, SW_HIDE);
+
+	// Kill the inner CLI (claude / copilot / gemini) so wt doesn't pop a
+	// "do you want to close this terminal?" confirmation. For non-Claude
+	// kinds we don't currently track the inner pid, so wt may still prompt;
+	// noted as a follow-up.
+	if (claude_pid_) {
+		HANDLE h = OpenProcess(PROCESS_TERMINATE, FALSE, claude_pid_);
+		if (h) {
+			TerminateProcess(h, 0);
+			CloseHandle(h);
+		}
+		claude_pid_ = 0;  // make this method idempotent
+	}
+
+	// Detach the wt window from claude-hub before asking it to close. Without
+	// this, wt's destruction would propagate up our parent chain and could
+	// disturb sibling layout for one frame.
+	if (window_ && IsWindow(window_)) {
+		SetParent(window_, nullptr);
+		PostMessageW(window_, WM_CLOSE, 0, 0);
+		window_ = nullptr;  // make this method idempotent
+	}
 }
 
 void Agent::reparent_as_child(HWND parent) {

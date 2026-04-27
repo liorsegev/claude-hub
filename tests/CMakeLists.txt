@@ -6,6 +6,7 @@ add_executable(claude_hub_tests
 	test_claude_session.cpp
 	test_jsonl_probe.cpp
 	test_agent_manager.cpp
+	test_agent_close.cpp
 
 	# Source files under test. We compile them directly into the test binary
 	# rather than packaging the production target as a lib — nothing else

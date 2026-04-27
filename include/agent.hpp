@@ -69,6 +69,12 @@ public:
 	// Lifecycle
 	bool is_alive() const;
 
+	// Tear down the inner CLI process (if known), unparent the wt window from
+	// claude-hub's hierarchy, and post WM_CLOSE so wt itself shuts down. Safe
+	// to call multiple times; idempotent. Called automatically from ~Agent so
+	// dropping the unique_ptr is enough to fully clean up.
+	void close();
+
 	// Attach a JSONL watcher once the conversation file has been discovered.
 	void attach_jsonl(std::filesystem::path jsonl_path, Logger* log);
 
