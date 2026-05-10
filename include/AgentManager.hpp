@@ -31,7 +31,10 @@ public:
 	AgentManager(HWND container_window, Logger& log);
 
 	void spawn(const SpawnConfig& cfg);
-	void kill(int index);
+	// `delete_history`: when true, the agent's .jsonl conversation log (if any)
+	// is removed from disk before the agent is destroyed. Non-Claude agents and
+	// agents that never attached a jsonl have no file to delete.
+	void kill(int index, bool delete_history = false);
 	void switch_to(int index);
 
 	// Cheap; called every frame so the dock-the-window step happens with

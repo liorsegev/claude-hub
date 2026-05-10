@@ -119,9 +119,8 @@ void App::apply_sidebar_commands(const SidebarCommands& cmd) {
 	}
 
 	if (cmd.spawn_requested)         manager_->spawn(*cmd.spawn_requested);
-	if (cmd.kill_active_requested)   manager_->kill(manager_->active_index());
 	if (cmd.switch_to_index >= 0)    manager_->switch_to(cmd.switch_to_index);
-	if (cmd.kill_index >= 0)         manager_->kill(cmd.kill_index);
+	if (cmd.kill_index >= 0)         manager_->kill(cmd.kill_index, cmd.delete_history);
 }
 
 }

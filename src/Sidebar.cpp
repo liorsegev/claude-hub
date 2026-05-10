@@ -17,7 +17,8 @@ namespace {
 constexpr int PREVIEW_HEIGHT_PX = 90;
 constexpr size_t PREVIEW_MAX_CHARS = 240;
 constexpr size_t CWD_BUFFER_SIZE = 1024;
-constexpr const char* NEW_AGENT_POPUP_ID = "New Agent";
+constexpr const char* NEW_AGENT_POPUP_ID  = "New Agent";
+constexpr const char* KILL_CONFIRM_POPUP_ID = "Kill Agent";
 
 ImVec4 color_for(bool active, bool waiting, bool blink_on) {
 	constexpr ImVec4 ACTIVE{0.4f, 1.0f, 0.4f, 1.0f};
@@ -70,8 +71,16 @@ SidebarCommands Sidebar::draw(const AgentManager& manager,
 		new_agent_cwd_ = std::filesystem::current_path(ec).string();
 		new_agent_pending_open_ = true;
 	}
-	if (ImGui::Button("Kill Active", ImVec2(-1, constants::BUTTON_HEIGHT_PX)))
-		cmd.kill_active_requested = true;
+	if (ImGui::Button("Kill Active", ImVec2(-1, constants::BUTTON_HEIGHT_PX))) {
+		const int idx = manager.active_index();
+		if (idx >= 0 && idx < static_cast<int>(manager.agents().size())) {
+			const Agent& a = *manager.agents()[idx];
+			pending_kill_index_     = idx;
+			pending_kill_label_     = display_name(a);
+			pending_kill_has_jsonl_ = !a.jsonl_path().empty();
+			pending_kill_open_      = true;
+		}
+	}
 	ImGui::Separator();
 	ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1), "Yellow = waiting for input");
 	ImGui::Separator();
@@ -139,6 +148,64 @@ SidebarCommands Sidebar::draw(const AgentManager& manager,
 		ImGui::EndPopup();
 	}
 
+	// Kill-Confirm modal: opened on the next frame after a kill button click,
+	// so it draws on top of the sidebar rather than being clipped inside it.
+	if (pending_kill_open_) {
+		ImGui::OpenPopup(KILL_CONFIRM_POPUP_ID);
+		pending_kill_open_ = false;
+	}
+
+	ImGui::SetNextWindowPos(
+		ImVec2(client_w * 0.5f, client_h * 0.5f),
+		ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+	ImGui::SetNextWindowSize(ImVec2(440, 0), ImGuiCond_Appearing);
+
+	if (ImGui::BeginPopupModal(KILL_CONFIRM_POPUP_ID, nullptr,
+			ImGuiWindowFlags_AlwaysAutoResize)) {
+		// Reuse new_agent_modal_open so App hides the terminal child HWND
+		// behind any modal — its z-order issue is identical.
+		cmd.new_agent_modal_open = true;
+
+		ImGui::TextWrapped("Kill agent: %s", pending_kill_label_.c_str());
+		ImGui::Spacing();
+		if (pending_kill_has_jsonl_) {
+			ImGui::TextWrapped("Also delete this agent's chat history (.jsonl)?");
+		} else {
+			ImGui::TextDisabled("(no chat history file is attached to this agent)");
+		}
+		ImGui::Spacing();
+		ImGui::Separator();
+		ImGui::Spacing();
+
+		const float spacing = ImGui::GetStyle().ItemSpacing.x;
+		const float btn_w   = (ImGui::GetContentRegionAvail().x - spacing * 2) / 3.0f;
+
+		// Kill & Delete history. Disabled when there's no jsonl to delete.
+		if (!pending_kill_has_jsonl_) ImGui::BeginDisabled();
+		if (ImGui::Button("Kill & Delete history", ImVec2(btn_w, 0))) {
+			cmd.kill_index      = pending_kill_index_;
+			cmd.delete_history  = true;
+			pending_kill_index_ = -1;
+			ImGui::CloseCurrentPopup();
+		}
+		if (!pending_kill_has_jsonl_) ImGui::EndDisabled();
+
+		ImGui::SameLine();
+		if (ImGui::Button("Kill (keep)", ImVec2(btn_w, 0))) {
+			cmd.kill_index      = pending_kill_index_;
+			cmd.delete_history  = false;
+			pending_kill_index_ = -1;
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel", ImVec2(btn_w, 0))) {
+			pending_kill_index_ = -1;
+			ImGui::CloseCurrentPopup();
+		}
+
+		ImGui::EndPopup();
+	}
+
 	const bool blink_on = (GetTickCount64() / constants::BLINK_PERIOD_MS) % 2 == 0;
 	const int active_idx = manager.active_index();
 	const auto& agents = manager.agents();
@@ -181,7 +248,12 @@ SidebarCommands Sidebar::draw(const AgentManager& manager,
 		}
 
 		ImGui::SameLine();
-		if (ImGui::SmallButton("X")) cmd.kill_index = i;
+		if (ImGui::SmallButton("X")) {
+			pending_kill_index_     = i;
+			pending_kill_label_     = display_name(a);
+			pending_kill_has_jsonl_ = !a.jsonl_path().empty();
+			pending_kill_open_      = true;
+		}
 
 		const ImVec2 row_end = ImGui::GetCursorScreenPos();
 		if (a.waiting()) {

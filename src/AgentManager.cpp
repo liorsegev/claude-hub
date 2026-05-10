@@ -198,8 +198,23 @@ void AgentManager::commit_probe_stage(int agent_index, ProbeStage p) {
 	}
 }
 
-void AgentManager::kill(int index) {
+void AgentManager::kill(int index, bool delete_history) {
 	if (index < 0 || index >= static_cast<int>(agents_.size())) return;
+
+	if (delete_history) {
+		const fs::path& jsonl = agents_[index]->jsonl_path();
+		if (!jsonl.empty()) {
+			std::error_code ec;
+			const bool removed = fs::remove(jsonl, ec);
+			log_.logf("Agent %s: chat history %s (%s)%s%s\n",
+				agents_[index]->name().c_str(),
+				removed ? "deleted" : "delete-skipped",
+				jsonl.string().c_str(),
+				ec ? " err=" : "",
+				ec ? ec.message().c_str() : "");
+		}
+	}
+
 	agents_.erase(agents_.begin() + index);
 
 	if (agents_.empty()) { active_ = -1; return; }

@@ -20,11 +20,14 @@ namespace ch {
 // Sidebar holding a mutable reference to AgentManager during draw().
 struct SidebarCommands {
 	std::optional<SpawnConfig> spawn_requested;
-	bool kill_active_requested = false;
 	int switch_to_index = -1;
 	int kill_index = -1;
-	// True while the New-Agent modal is on screen. App uses this to hide the
-	// active terminal child HWND, which would otherwise z-order above the modal.
+	// Set together with kill_index when the user confirmed deleting the
+	// agent's chat history (its .jsonl) along with killing it.
+	bool delete_history = false;
+	// True while any modal (New-Agent or Kill-Confirm) is on screen. App uses
+	// this to hide the active terminal child HWND, which would otherwise
+	// z-order above the modal.
 	bool new_agent_modal_open = false;
 };
 
@@ -42,6 +45,15 @@ private:
 	bool         new_agent_pending_open_ = false;
 	AgentKind    new_agent_kind_ = AgentKind::Claude;
 	std::string  new_agent_cwd_;  // utf-8; edited via InputText
+
+	// Kill-Confirm modal state. -1 when no kill is awaiting confirmation;
+	// otherwise the index of the agent the user clicked to kill. Captured at
+	// click time so the modal still references the right agent if the agents_
+	// vector shifts.
+	int          pending_kill_index_ = -1;
+	bool         pending_kill_open_ = false;
+	std::string  pending_kill_label_;     // display name shown in the modal
+	bool         pending_kill_has_jsonl_ = false;
 };
 
 }

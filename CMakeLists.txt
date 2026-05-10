@@ -65,6 +65,9 @@ add_executable(agents-hub WIN32
 	src/Sidebar.cpp
 	src/WaitingFlagWatcher.cpp
 	src/WindowsTerminalSpawner.cpp
+	# Win32 resource — embeds the app icon. CMake invokes rc.exe under MSVC
+	# and links the resulting .res automatically.
+	assets/agents-hub.rc
 )
 target_include_directories(agents-hub PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(agents-hub PRIVATE imgui_lib ole32 shell32 uuid)
